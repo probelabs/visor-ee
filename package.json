@@ -1,0 +1,29 @@
+{
+  "name": "@probelabs/visor-ee",
+  "version": "0.1.0",
+  "description": "Visor Enterprise Edition - Commercial workflows and extensions",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "author": {
+    "name": "Probe Labs",
+    "email": "enterprise@probelabs.io",
+    "url": "https://probelabs.io"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/probelabs/visor-ee.git"
+  },
+  "keywords": [
+    "visor",
+    "enterprise",
+    "code-review",
+    "security",
+    "compliance"
+  ],
+  "peerDependencies": {
+    "@probelabs/visor": ">=0.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
