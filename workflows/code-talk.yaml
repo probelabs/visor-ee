@@ -577,6 +577,16 @@ tests:
             exactly: 1
           - step: explore-code
             exactly: 1
+        # Verify workflow inputs are rendered in the route-projects prompt
+        # Note: prompts assertion captures the user prompt only, not system_prompt.
+        # The user prompt contains question; system_prompt contains architecture and projects.
+        prompts:
+          - step: route-projects
+            contains:
+              # Verify question input is rendered (from inputs.question)
+              - "How does authentication work?"
+              # Verify max_projects default is rendered
+              - "Maximum projects:"
         workflow_output:
           - path: answer.text
             equals: "Authentication is handled in the gateway via JWT middleware."
