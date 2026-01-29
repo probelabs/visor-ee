@@ -196,28 +196,38 @@ steps:
           description: {{ p.description }}
         {% endfor %}
         </available_projects>
-    schema:
-      type: object
-      additionalProperties: false
-      properties:
-        projects:
-          type: array
-          description: Projects to query for this question
-          items:
-            type: object
-            additionalProperties: false
-            properties:
-              project_id:
-                type: string
-                description: One of the available project IDs
-              reason:
-                type: string
-                description: Brief explanation of why this project is relevant
-            required: [project_id]
-        notes:
-          type: string
-          description: Optional planner notes
-      required: [projects]
+    schema: |
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projects": {
+            "type": "array",
+            "description": "Projects to query for this question",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "project_id": {
+                  "type": "string",
+                  "description": "One of the available project IDs",
+                  "enum": [{% for p in inputs.projects %}"{{ p.id }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Brief explanation of why this project is relevant"
+                }
+              },
+              "required": ["project_id"]
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "Optional planner notes"
+          }
+        },
+        "required": ["projects"]
+      }
     prompt: |
       <question>{{ inputs.question }}</question>
 
