@@ -337,6 +337,16 @@ steps:
       skip_code_context: true
       enableDelegate: true
       prompt_type: code-explorer
+      # Explicitly enable code exploration tools
+      allowedTools:
+        - search
+        - query
+        - extract
+        - listFiles
+        - searchFiles
+        - delegate
+        - bash
+        - attempt_completion
       allowBash: true
       bashConfig:
         allow:
