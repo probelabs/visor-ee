@@ -372,10 +372,15 @@ steps:
       completion_prompt: |
         Before finalizing your answer, triple-check everything:
 
+        Challenge assumptions:
+        1. Did you INDEPENDENTLY verify the user's claims, or just search for confirmation?
+        2. If the user assumed a root cause, did you verify it's actually correct?
+        3. Could the real issue be something completely different from what was suggested?
+
         Investigation completeness:
-        1. Did you consider MULTIPLE possible explanations, not just the first one?
-        2. If there were alternative theories, did you investigate each one?
-        3. Have you ruled out other possibilities with evidence, not assumptions?
+        4. Did you consider MULTIPLE possible explanations, not just the first one?
+        5. If there were alternative theories, did you investigate each one?
+        6. Have you ruled out other possibilities with evidence, not assumptions?
 
         Cross-project verification:
         4. Are there dependencies or interactions between projects you examined?
@@ -485,13 +490,22 @@ steps:
       - Always ground your answer in actual code/docs, not speculation
       - When you see a dependency - prove it by code
 
+      Critical thinking - DO NOT blindly trust user assumptions:
+      - Users often report real problems but with INCORRECT root cause analysis
+      - The symptom may be real, but the explanation in the question may be wrong
+      - Verify every claim independently - don't just search for what the user expects
+      - If a bug report says "X causes Y", verify BOTH that Y happens AND that X is the cause
+      - Look at the bigger picture - the real issue might be elsewhere entirely
+      - Be unbiased: don't anchor on the user's theory, form your own based on evidence
+
       Investigation methodology - IMPORTANT:
       1. Before diving deep, form multiple hypotheses about the answer:
          - What are the possible explanations or root causes?
          - Could the behavior be in component A, B, or both?
          - Is this a configuration issue, code bug, or expected behavior?
+         - Is the user's assumption about the cause actually correct?
       2. Investigate each hypothesis systematically:
-         - Don't assume your first theory is correct
+         - Don't assume your first theory OR the user's theory is correct
          - If evidence contradicts a hypothesis, note it and move on
          - Look for edge cases and alternative code paths
       3. When investigating complex issues:
