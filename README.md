@@ -63,4 +63,4 @@ This software is proprietary and requires a commercial license. See [LICENSE](./
 
 ## Support
 
-Contact: enterprise@probelabs.io
+Contact: hello@probelabs.com
