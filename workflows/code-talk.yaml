@@ -340,7 +340,20 @@ steps:
       allowBash: true
       bashConfig:
         allow:
-          - "git:*"
+          # Git read-only commands only (no commit, push, reset, rebase, merge, etc.)
+          - "git:diff:*"
+          - "git:log:*"
+          - "git:show:*"
+          - "git:blame:*"
+          - "git:checkout:*"
+          - "git:branch:*"
+          - "git:tag:*"
+          - "git:fetch:*"
+          - "git:status:*"
+          - "git:rev-parse:*"
+          - "git:ls-files:*"
+          - "git:ls-tree:*"
+          # File operations
           - "ls:*"
           - "find:*"
           - "cat:*"
@@ -348,17 +361,12 @@ steps:
           - "tail:*"
           - "wc:*"
           - "grep:*"
-          - "gh:run:list"
+          # GitHub CLI read-only
           - "gh:run:list:*"
-          - "gh:run:view"
           - "gh:run:view:*"
-          - "gh:pr:list"
           - "gh:pr:list:*"
-          - "gh:pr:view"
           - "gh:pr:view:*"
-          - "gh:issue:list"
           - "gh:issue:list:*"
-          - "gh:issue:view"
           - "gh:issue:view:*"
         timeout: 30000
       completion_prompt: |
