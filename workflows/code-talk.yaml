@@ -372,17 +372,27 @@ steps:
       completion_prompt: |
         Before finalizing your answer, triple-check everything:
 
-        1. Are there any dependencies or interactions between the projects you
-           examined? Are they logical?
-        2. Did you verify how data/config flows between components?
-        3. Are all code references accurate (file paths, function names, line numbers)?
+        Investigation completeness:
+        1. Did you consider MULTIPLE possible explanations, not just the first one?
+        2. If there were alternative theories, did you investigate each one?
+        3. Have you ruled out other possibilities with evidence, not assumptions?
 
-        If you found any ambiguity or missed connections, do a few more queries.
+        Cross-project verification:
+        4. Are there dependencies or interactions between projects you examined?
+        5. Did you verify how data/config flows between components?
+        6. Did you check both the happy path AND error handling paths?
 
-        You can also validate facts with the delegate tool if your confidence is low.
+        Reference accuracy:
+        7. Are all code references accurate (file paths, function names, line numbers)?
+        8. Do the docs match what the code actually does?
+
+        If you found any ambiguity, gaps in your investigation, or unexplored
+        hypotheses - use delegate tool to investigate further before concluding.
 
         When you finish, ensure your answer includes:
         - All relevant details grounded in code
+        - If multiple theories were considered, explain which one is correct and WHY
+          (with evidence ruling out alternatives)
         - At the END of your answer.text, append a "## References" section with a
           bulleted list of all code/doc references in this format:
           - [file.go:42-50](https://github.com/org/repo/blob/main/path/file.go#L42-L50) - brief description
@@ -473,7 +483,39 @@ steps:
       - When multiple projects are involved, deliberately follow data and control
         flow across them and explain the connections
       - Always ground your answer in actual code/docs, not speculation
-      - When you see a dependency - prove it by code. Use delegate tool for deep dives
+      - When you see a dependency - prove it by code
+
+      Investigation methodology - IMPORTANT:
+      1. Before diving deep, form multiple hypotheses about the answer:
+         - What are the possible explanations or root causes?
+         - Could the behavior be in component A, B, or both?
+         - Is this a configuration issue, code bug, or expected behavior?
+      2. Investigate each hypothesis systematically:
+         - Don't assume your first theory is correct
+         - If evidence contradicts a hypothesis, note it and move on
+         - Look for edge cases and alternative code paths
+      3. When investigating complex issues:
+         - Check error handling paths, not just happy paths
+         - Look at configuration options that might affect behavior
+         - Consider version differences if relevant
+      4. Cross-reference your findings:
+         - Do the docs match what the code actually does?
+         - Are there any TODOs, FIXMEs, or known issues?
+         - Check git blame/log for recent changes if behavior seems unexpected
+
+      Using delegate tool effectively:
+      - Use delegate when you need DEEP investigation into a specific component
+      - Each delegate call should focus on ONE specific question or hypothesis
+      - Good delegate uses:
+        - "Investigate how JWT validation handles expired tokens in gateway"
+        - "Find all places where rate limit counters are incremented"
+        - "Trace the request flow from API entry to database query"
+      - Bad delegate uses:
+        - "Look at the code" (too vague)
+        - "Find everything about auth" (too broad)
+      - Run multiple delegates in PARALLEL when investigating different hypotheses
+        or different components - don't wait for one to finish before starting another
+      - Always ask delegates to return specific file paths and line numbers
       </instructions>
 
       {% if inputs.exploration_prompt %}
