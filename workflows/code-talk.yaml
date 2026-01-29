@@ -375,8 +375,10 @@ steps:
 
         When you finish, ensure your answer includes:
         - All relevant details grounded in code
-        - A list of references to code and docs with https://github.com/... format,
-          pointing to the right lines
+        - At the END of your answer.text, append a "## References" section with a
+          bulleted list of all code/doc references in this format:
+          - [file.go:42-50](https://github.com/org/repo/blob/main/path/file.go#L42-L50) - brief description
+        - Also populate the references array with structured data for each reference
     schema:
       type: object
       additionalProperties: false
@@ -387,29 +389,37 @@ steps:
           properties:
             text:
               type: string
-              description: The complete answer with explanations
+              description: |
+                The complete answer with explanations. MUST end with a
+                "## References" section containing clickable GitHub links.
             summary:
               type: string
               description: One-line summary (optional)
           required: [text]
         references:
           type: array
-          description: Code and documentation references
+          description: Code and documentation references (must not be empty)
           items:
             type: object
             properties:
               project:
                 type: string
+                description: Project ID (e.g., "tyk", "tyk-analytics")
               file:
                 type: string
+                description: File path relative to repo root
               lines:
                 type: array
+                description: Line numbers (start and end if range)
                 items: { type: number }
               url:
                 type: string
+                description: Full GitHub URL with line numbers (e.g., https://github.com/org/repo/blob/main/file.go#L42-L50)
               snippet:
                 type: string
-      required: [answer]
+                description: Brief description of what this reference shows
+            required: [project, file, url]
+      required: [answer, references]
     prompt: |
       <instructions>
       You are a code/documentation explorer. Your goal is to answer a code-level
@@ -519,12 +529,18 @@ steps:
       - Be concrete and code/doc-grounded (mention key components, files, and
         configuration options when helpful)
       - Keep the explanation focused and coherent
-      - Include GitHub URLs with line numbers for all code references
+      - IMPORTANT: At the END of your answer, include a "## References" section
+        with clickable GitHub links pointing to specific lines
 
       Return your answer in the schema format with:
-      - answer.text: your complete explanation
+      - answer.text: your complete explanation, ending with a "## References" section like:
+        ```
+        ## References
+        - [mw_jwt.go:142-180](https://github.com/TykTechnologies/tyk/blob/master/gateway/mw_jwt.go#L142-L180) - JWT validation middleware
+        - [jwt.md](https://github.com/TykTechnologies/tyk-docs/blob/main/tyk-docs/content/basic-config-and-security/security/authentication-authorization/jwt.md) - JWT documentation
+        ```
       - answer.summary: one-line summary (optional)
-      - references: array of code/doc references with file paths and URLs
+      - references: array with structured data for each reference (project, file, url, snippet)
       </task>
 
 # =============================================================================
