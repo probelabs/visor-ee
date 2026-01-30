@@ -337,16 +337,6 @@ steps:
       skip_code_context: true
       enableDelegate: true
       prompt_type: code-explorer
-      # Explicitly enable code exploration tools
-      allowedTools:
-        - search
-        - query
-        - extract
-        - listFiles
-        - searchFiles
-        - delegate
-        - bash
-        - attempt_completion
       allowBash: true
       bashConfig:
         allow:
@@ -371,13 +361,30 @@ steps:
           - "tail:*"
           - "wc:*"
           - "grep:*"
-          # GitHub CLI read-only
+          # GitHub CLI read-only operations
+          - "gh:run:*"
           - "gh:run:list:*"
           - "gh:run:view:*"
+          - "gh:run:watch:*"
+          - "gh:workflow:*"
+          - "gh:workflow:list:*"
+          - "gh:workflow:view:*"
+          - "gh:pr:*"
           - "gh:pr:list:*"
           - "gh:pr:view:*"
+          - "gh:pr:checks:*"
+          - "gh:pr:diff:*"
+          - "gh:issue:*"
           - "gh:issue:list:*"
           - "gh:issue:view:*"
+          - "gh:repo:view:*"
+          - "gh:repo:list:*"
+          - "gh:api:*"
+          - "gh:release:list:*"
+          - "gh:release:view:*"
+          # Curl for API calls (read-only)
+          - "curl:-s:*"
+          - "curl:*"
         timeout: 30000
       completion_prompt: |
         Before finalizing your answer, triple-check everything:
@@ -489,6 +496,9 @@ steps:
         2. Then run `git tag -l "v5.8*"` to find matching tags
         3. Checkout to the relevant tag: `git checkout v5.8.10`
       - Always verify you're on the correct version/branch before investigating code
+
+      Path rules: Always use relative paths (e.g., "gateway/mw_jwt.go"), never absolute
+      paths with /tmp/ or workspace UUIDs.
 
       High-level behavior:
       - Use documentation to understand intended behavior, configuration, and
