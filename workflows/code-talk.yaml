@@ -563,6 +563,14 @@ steps:
           {{ inputs.question }}
         </question>
 
+        <architecture>
+        The following architecture document describes the project topology, routing rules,
+        and important guidelines for working with this codebase. Use it to understand
+        project relationships, debugging procedures, and special instructions.
+
+        {{ inputs.architecture }}
+        </architecture>
+
         <routing_decision>
           {{ outputs['route-projects'] | json }}
         </routing_decision>
