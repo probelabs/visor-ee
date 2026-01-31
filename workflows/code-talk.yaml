@@ -461,7 +461,7 @@ steps:
           # Curl for API calls (read-only)
           - "curl:-s:*"
           - "curl:*"
-        timeout: 30000
+        timeout: 60000
       completion_prompt: |
         Before finalizing your answer, triple-check everything:
 
