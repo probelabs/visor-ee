@@ -77,6 +77,23 @@ Reusable intent classification workflow for assistant routing.
 - `intent`: selected intent ID
 - `topic`: short rewritten question
 
+**Example:**
+```
+checks:
+  route-intent:
+    type: workflow
+    workflow: intent-router
+    args:
+      question: "Please summarize this thread and highlight action items."
+      intents:
+        - id: chat
+          description: general Q&A or small talk
+        - id: thread_summary
+          description: user explicitly asks for a summary of the thread
+        - id: code_help
+          description: questions about code, debugging, or implementation details
+```
+
 ## License
 
 This software is proprietary and requires a commercial license. See [LICENSE](./LICENSE) for details.
