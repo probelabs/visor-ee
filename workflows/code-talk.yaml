@@ -477,9 +477,23 @@ steps:
       - `git show` to inspect specific commits
       - `git blame` to understand who changed what and when
       - `git checkout` to switch branches when comparing implementations
-      - `git branch` to list available branches
+      - `git branch -a` to list ALL branches (local and remote)
       - `git fetch --tags` to fetch all tags from remote
       - `git tag -l` to list all available tags
+
+      IMPORTANT - Fetching remote branches:
+      Repositories are checked out with shallow clone (fetch_depth: 1), so remote
+      branches are NOT available locally by default. Before checking out a branch:
+      1. First fetch the specific branch: `git fetch origin <branch-name>`
+      2. Then checkout: `git checkout <branch-name>` or `git checkout origin/<branch-name>`
+
+      Example for checking out release-5.3:
+      - First: `git fetch origin release-5.3`
+      - Then: `git checkout release-5.3`
+
+      If the branch doesn't exist, try listing available branches:
+      - `git branch -r` to see remote branches
+      - `git ls-remote --heads origin` to list all remote branches
 
       Use these when you need to understand how code evolved, compare different
       versions, or investigate recent changes related to the question.
