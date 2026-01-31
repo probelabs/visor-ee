@@ -136,6 +136,82 @@ outputs:
       }
       return [];
 
+  - name: projects_explored_details
+    description: Project details for routed projects (id, repo, description, reason)
+    value_js: |
+      function normalizeFromItems(items) {
+        var result = [];
+        if (!Array.isArray(items)) return result;
+        for (var i = 0; i < items.length; i++) {
+          var item = items[i];
+          if (!item) continue;
+          var id = item.project_id || item.id;
+          var repo = item.repository || item.repo;
+          if (!id || !repo) continue;
+          result.push({
+            id: id,
+            repo: repo,
+            description: item.description || '',
+            reason: item.reason || ''
+          });
+        }
+        return result;
+      }
+
+      // Prefer detailed project-items output (includes repo/description/reason)
+      if (outputs.history) {
+        var items = outputs.history['project-items'];
+        if (items) {
+          var lastItems = Array.isArray(items) ? items[items.length - 1] : items;
+          var normalized = normalizeFromItems(lastItems);
+          if (normalized.length > 0) return normalized;
+        }
+      }
+
+      var directItems = normalizeFromItems(outputs['project-items']);
+      if (directItems.length > 0) return directItems;
+
+      // Fallback: map project IDs to inputs.projects
+      var ids = [];
+      if (outputs.history) {
+        var historyItems = outputs.history['project-items'];
+        if (historyItems) {
+          var lastHistory = Array.isArray(historyItems) ? historyItems[historyItems.length - 1] : historyItems;
+          if (Array.isArray(lastHistory)) {
+            ids = lastHistory.map(function(p) { return p.project_id; });
+          }
+        }
+      }
+      if (ids.length === 0) {
+        var projectItems = outputs['project-items'];
+        if (Array.isArray(projectItems)) {
+          ids = projectItems.map(function(p) { return p.project_id; });
+        }
+      }
+
+      var inputProjects = Array.isArray(inputs.projects) ? inputs.projects : [];
+      var byId = {};
+      for (var j = 0; j < inputProjects.length; j++) {
+        var p = inputProjects[j];
+        if (p && p.id) {
+          byId[p.id] = p;
+        }
+      }
+
+      var mapped = [];
+      for (var k = 0; k < ids.length; k++) {
+        var pid = ids[k];
+        var info = byId[pid];
+        if (!info || !info.repo) continue;
+        mapped.push({
+          id: pid,
+          repo: info.repo,
+          description: info.description || '',
+          reason: ''
+        });
+      }
+      return mapped;
+
 steps:
   # ===========================================================================
   # Step 1: Checkout documentation (always first)

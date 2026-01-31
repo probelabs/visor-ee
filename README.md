@@ -13,6 +13,13 @@ AI-powered code exploration workflow that answers questions about your codebase 
 - Automatic project routing
 - Code references with file paths and line numbers
 - GitHub integration for documentation
+- Output includes routed project IDs and detailed metadata
+
+**Outputs (key fields):**
+- `answer`: final response object
+- `references`: file references
+- `projects_explored`: list of routed project IDs
+- `projects_explored_details`: list of `{id, repo, description, reason}`
 
 ## Usage
 
