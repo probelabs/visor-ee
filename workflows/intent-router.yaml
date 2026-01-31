@@ -52,24 +52,6 @@ inputs:
           topic_instruction: { type: string }
         required: [id, description]
 
-  - name: jira_context_xml
-    required: false
-    description: Jira context XML (optional)
-    schema:
-      type: string
-
-  - name: zendesk_context_xml
-    required: false
-    description: Zendesk context XML (optional)
-    schema:
-      type: string
-
-  - name: confluence_context_xml
-    required: false
-    description: Confluence context XML (optional)
-    schema:
-      type: string
-
   - name: routing_instructions
     required: false
     description: Additional routing rules to append (optional)
@@ -144,24 +126,6 @@ steps:
       Use it to understand the current message, but prioritize the current message.
       If the latest message is a correction or follow-up, use history to reconstruct context.
       </slack_context_instructions>
-
-      {% if inputs.jira_context_xml %}
-      <jira_tickets_referenced>
-      {{ inputs.jira_context_xml }}
-      </jira_tickets_referenced>
-      {% endif %}
-
-      {% if inputs.zendesk_context_xml %}
-      <zendesk_tickets_referenced>
-      {{ inputs.zendesk_context_xml }}
-      </zendesk_tickets_referenced>
-      {% endif %}
-
-      {% if inputs.confluence_context_xml %}
-      <confluence_pages_referenced>
-      {{ inputs.confluence_context_xml }}
-      </confluence_pages_referenced>
-      {% endif %}
 
       <intent_options>
       {% for i in inputs.intents %}
