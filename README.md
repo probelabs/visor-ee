@@ -64,6 +64,19 @@ checks:
 
 See `examples/code-talk-as-tool.yaml` for a complete example.
 
+### intent-router
+
+Reusable intent classification workflow for assistant routing.
+
+**Features:**
+- Configurable intent catalog (id + description + guidance)
+- Short question rewriting (topic)
+- Works with Slack/GitHub thread context
+
+**Outputs (key fields):**
+- `intent`: selected intent ID
+- `topic`: short rewritten question
+
 ## License
 
 This software is proprietary and requires a commercial license. See [LICENSE](./LICENSE) for details.
