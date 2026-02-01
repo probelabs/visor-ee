@@ -39,8 +39,6 @@ inputs:
       Array of intent definitions:
         - id: unique identifier for routing
         - description: short description of when to use
-        - when (optional): longer guidance and examples
-        - topic_instruction (optional): per-intent topic formatting rules
     schema:
       type: array
       items:
@@ -48,8 +46,6 @@ inputs:
         properties:
           id: { type: string }
           description: { type: string }
-          when: { type: string }
-          topic_instruction: { type: string }
         required: [id, description]
 
   - name: tags
@@ -58,7 +54,6 @@ inputs:
       Optional tag definitions to classify capabilities or resources needed:
         - id: tag identifier
         - description: when the tag applies
-        - when (optional): longer guidance/examples
     schema:
       type: array
       items:
@@ -66,7 +61,6 @@ inputs:
         properties:
           id: { type: string }
           description: { type: string }
-          when: { type: string }
         required: [id, description]
 
   - name: routing_instructions
@@ -79,34 +73,22 @@ outputs:
   - name: intent
     description: Selected intent ID
     value_js: |
-      if (outputs['classify'] && outputs['classify'].intent !== undefined) {
-        return outputs['classify'].intent;
-      }
-      return null;
+      return outputs?.classify?.intent ?? null;
 
   - name: topic
     description: Short question summarizing the request
     value_js: |
-      if (outputs['classify'] && outputs['classify'].topic !== undefined) {
-        return outputs['classify'].topic;
-      }
-      return null;
+      return outputs?.classify?.topic ?? null;
 
   - name: tags
     description: Selected tag IDs
     value_js: |
-      if (outputs['classify'] && outputs['classify'].tags !== undefined) {
-        return outputs['classify'].tags;
-      }
-      return [];
+      return outputs?.classify?.tags ?? [];
 
   - name: raw
     description: Raw classifier output
     value_js: |
-      if (outputs['classify']) {
-        return outputs['classify'];
-      }
-      return null;
+      return outputs?.classify ?? null;
 
 steps:
   classify:
@@ -174,12 +156,6 @@ steps:
       {% for i in inputs.intents %}
       <option value="{{ i.id }}">
       {{ i.description }}
-      {% if i.when %}
-      {{ i.when }}
-      {% endif %}
-      {% if i.topic_instruction %}
-      Topic rule: {{ i.topic_instruction }}
-      {% endif %}
       </option>
       {% endfor %}
       </intent_options>
@@ -189,9 +165,6 @@ steps:
       {% for t in inputs.tags %}
       <option value="{{ t.id }}">
       {{ t.description }}
-      {% if t.when %}
-      {{ t.when }}
-      {% endif %}
       </option>
       {% endfor %}
       </tag_options>
