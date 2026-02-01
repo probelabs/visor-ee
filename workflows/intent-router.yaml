@@ -62,17 +62,26 @@ outputs:
   - name: intent
     description: Selected intent ID
     value_js: |
-      return outputs['classify']?.intent ?? null;
+      if (outputs['classify'] && outputs['classify'].intent !== undefined) {
+        return outputs['classify'].intent;
+      }
+      return null;
 
   - name: topic
     description: Short question summarizing the request
     value_js: |
-      return outputs['classify']?.topic ?? null;
+      if (outputs['classify'] && outputs['classify'].topic !== undefined) {
+        return outputs['classify'].topic;
+      }
+      return null;
 
   - name: raw
     description: Raw classifier output
     value_js: |
-      return outputs['classify'] ?? null;
+      if (outputs['classify']) {
+        return outputs['classify'];
+      }
+      return null;
 
 steps:
   classify:
