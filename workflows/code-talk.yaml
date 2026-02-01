@@ -440,6 +440,7 @@ steps:
     ai:
       skip_code_context: true
       enableDelegate: true
+      max_iterations: 40
       prompt_type: code-explorer
       allowBash: true
       bashConfig:
