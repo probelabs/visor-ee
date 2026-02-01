@@ -71,11 +71,13 @@ Reusable intent classification workflow for assistant routing.
 **Features:**
 - Configurable intent catalog (id + description + guidance)
 - Short question rewriting (topic)
+- Optional tag classification (capabilities/resources)
 - Works with Slack/GitHub thread context
 
 **Outputs (key fields):**
 - `intent`: selected intent ID
 - `topic`: short rewritten question
+- `tags`: array of selected tag IDs (optional)
 
 **Example:**
 ```
@@ -92,6 +94,11 @@ checks:
           description: user explicitly asks for a summary of the thread
         - id: code_help
           description: questions about code, debugging, or implementation details
+      tags:
+        - id: jira
+          description: request references Jira tickets or needs Jira data
+        - id: confluence
+          description: request references Confluence pages or needs Confluence data
 ```
 
 ## License
