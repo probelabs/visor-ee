@@ -101,116 +101,143 @@ outputs:
   - name: answer
     description: The answer object with text
     value_js: |
-      var result = outputs['explore-code'];
-      if (result && result.answer) {
-        return result.answer;
+      const result = outputs?.['explore-code'];
+      if (result?.answer) return result.answer;
+      const routeNotes = outputs?.['route-projects']?.notes;
+      if (typeof routeNotes === 'string' && routeNotes.trim().length > 0) {
+        return { text: routeNotes };
       }
       return null;
 
   - name: references
     description: Code/doc references from exploration
     value_js: |
-      var result = outputs['explore-code'];
-      if (result && result.references) {
-        return result.references;
-      }
-      return [];
+      const result = outputs?.['explore-code'];
+      return result?.references ?? [];
 
   - name: projects_explored
     description: Which project IDs were checked out
     value_js: |
       // Try to get from history first
-      if (outputs.history) {
-        var items = outputs.history['project-items'];
-        if (items) {
-          var lastItems = Array.isArray(items) ? items[items.length - 1] : items;
-          if (Array.isArray(lastItems)) {
-            return lastItems.map(function(p) { return p.project_id; });
-          }
-        }
+      const historyItems = outputs?.history?.['project-items'];
+      const lastItems = Array.isArray(historyItems) ? historyItems[historyItems.length - 1] : historyItems;
+      if (Array.isArray(lastItems)) {
+        return lastItems
+          .map(function (p) { return p?.project_id; })
+          .filter(function (p) { return p; });
       }
       // Fallback: try to get from direct output
-      var projectItems = outputs['project-items'];
+      const projectItems = outputs?.['project-items'];
       if (Array.isArray(projectItems)) {
-        return projectItems.map(function(p) { return p.project_id; });
+        return projectItems
+          .map(function (p) { return p?.project_id; })
+          .filter(function (p) { return p; });
       }
       return [];
 
   - name: projects_explored_details
     description: Project details for routed projects (id, repo, description, reason)
     value_js: |
-      function normalizeFromItems(items) {
-        var result = [];
+      const normalizeFromItems = function (items) {
+        const result = [];
         if (!Array.isArray(items)) return result;
-        for (var i = 0; i < items.length; i++) {
-          var item = items[i];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
           if (!item) continue;
-          var id = item.project_id || item.id;
-          var repo = item.repository || item.repo;
+          const id = item.project_id ?? item.id;
+          const repo = item.repository ?? item.repo;
           if (!id || !repo) continue;
           result.push({
-            id: id,
-            repo: repo,
-            description: item.description || '',
-            reason: item.reason || ''
+            id,
+            repo,
+            description: item.description ?? '',
+            reason: item.reason ?? ''
           });
         }
         return result;
-      }
+      };
 
       // Prefer detailed project-items output (includes repo/description/reason)
-      if (outputs.history) {
-        var items = outputs.history['project-items'];
-        if (items) {
-          var lastItems = Array.isArray(items) ? items[items.length - 1] : items;
-          var normalized = normalizeFromItems(lastItems);
-          if (normalized.length > 0) return normalized;
-        }
-      }
+      const historyItems = outputs?.history?.['project-items'];
+      const lastHistory = Array.isArray(historyItems) ? historyItems[historyItems.length - 1] : historyItems;
+      const normalized = normalizeFromItems(lastHistory);
+      if (normalized.length > 0) return normalized;
 
-      var directItems = normalizeFromItems(outputs['project-items']);
+      const directItems = normalizeFromItems(outputs?.['project-items']);
       if (directItems.length > 0) return directItems;
 
       // Fallback: map project IDs to inputs.projects
-      var ids = [];
-      if (outputs.history) {
-        var historyItems = outputs.history['project-items'];
-        if (historyItems) {
-          var lastHistory = Array.isArray(historyItems) ? historyItems[historyItems.length - 1] : historyItems;
-          if (Array.isArray(lastHistory)) {
-            ids = lastHistory.map(function(p) { return p.project_id; });
-          }
-        }
+      let ids = [];
+      if (Array.isArray(lastHistory)) {
+        ids = lastHistory
+          .map(function (p) { return p?.project_id; })
+          .filter(function (p) { return p; });
       }
       if (ids.length === 0) {
-        var projectItems = outputs['project-items'];
+        const projectItems = outputs?.['project-items'];
         if (Array.isArray(projectItems)) {
-          ids = projectItems.map(function(p) { return p.project_id; });
+          ids = projectItems
+            .map(function (p) { return p?.project_id; })
+            .filter(function (p) { return p; });
         }
       }
 
-      var inputProjects = Array.isArray(inputs.projects) ? inputs.projects : [];
-      var byId = {};
-      for (var j = 0; j < inputProjects.length; j++) {
-        var p = inputProjects[j];
-        if (p && p.id) {
+      const inputProjects = Array.isArray(inputs?.projects) ? inputs.projects : [];
+      const byId = {};
+      for (let j = 0; j < inputProjects.length; j++) {
+        const p = inputProjects[j];
+        if (p?.id) {
           byId[p.id] = p;
         }
       }
 
-      var mapped = [];
-      for (var k = 0; k < ids.length; k++) {
-        var pid = ids[k];
-        var info = byId[pid];
-        if (!info || !info.repo) continue;
+      const mapped = [];
+      for (let k = 0; k < ids.length; k++) {
+        const pid = ids[k];
+        const info = byId[pid];
+        if (!info?.repo) continue;
         mapped.push({
           id: pid,
           repo: info.repo,
-          description: info.description || '',
+          description: info.description ?? '',
           reason: ''
         });
       }
       return mapped;
+
+  - name: checkout_projects
+    description: Checked-out project paths aligned with routed projects
+    value_js: |
+      const historyItems = outputs?.history?.['project-items'];
+      const lastHistory = Array.isArray(historyItems) ? historyItems[historyItems.length - 1] : historyItems;
+      const items = Array.isArray(outputs?.['project-items'])
+        ? outputs['project-items']
+        : Array.isArray(lastHistory)
+          ? lastHistory
+          : [];
+
+      const checkoutOutput = outputs?.['checkout-projects'];
+      const checkouts = Array.isArray(checkoutOutput?.forEachItems)
+        ? checkoutOutput.forEachItems
+        : Array.isArray(checkoutOutput)
+          ? checkoutOutput
+          : [];
+
+      const result = [];
+      if (!Array.isArray(items) || !Array.isArray(checkouts)) return result;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item?.project_id) continue;
+        const checkout = checkouts[i] ?? {};
+        result.push({
+          project_id: item.project_id,
+          repository: item.repository ?? item.repo ?? '',
+          description: item.description ?? '',
+          path: checkout.path ?? checkout.workspace_path ?? ''
+        });
+      }
+      return result;
 
 steps:
   # ===========================================================================
@@ -235,8 +262,8 @@ steps:
     depends_on: [checkout-docs]
     assume:
       - "true"
-    guarantee: "(output?.projects?.length ?? 0) > 0"
-    fail_if: "(output?.projects?.length ?? 0) === 0"
+    guarantee: "(output?.projects?.length ?? 0) > 0 || (output?.notes?.length ?? 0) > 0"
+    fail_if: "(output?.projects?.length ?? 0) === 0 && !(output?.notes?.length > 0)"
     ai:
       skip_code_context: true
       prompt_type: general
@@ -315,6 +342,9 @@ steps:
       Return a "projects" array with:
       - "project_id": from the available project IDs listed above
       - "reason" (optional): brief explanation of relevance
+      - If you cannot determine the relevant projects from the context,
+        return an empty "projects" array and include a "notes" string
+        asking for the missing details you need.
 
       Routing guidelines:
       - When functionality spans multiple components, include ALL affected projects
@@ -344,39 +374,37 @@ steps:
       type: array
     content: |
       // Build a map of project ID -> project info from inputs
-      var projectMap = {};
-      var inputProjects = inputs.projects || [];
-      for (var i = 0; i < inputProjects.length; i++) {
-        var p = inputProjects[i];
-        if (p && p.id) {
+      const projectMap = {};
+      const inputProjects = Array.isArray(inputs?.projects) ? inputs.projects : [];
+      for (let i = 0; i < inputProjects.length; i++) {
+        const p = inputProjects[i];
+        if (p?.id) {
           projectMap[p.id] = {
             repo: p.repo,
-            description: p.description || p.id
+            description: p.description ?? p.id
           };
         }
       }
 
       // Get routed projects from AI
-      var routeOutput = outputs['route-projects'];
-      var routedProjects = (routeOutput && routeOutput.projects) || [];
+      const routeOutput = outputs?.['route-projects'];
+      const routedProjects = Array.isArray(routeOutput?.projects) ? routeOutput.projects : [];
 
       // Map to checkout descriptors
-      var result = [];
-      var maxProjects = inputs.max_projects || 3;
+      const result = [];
+      const maxProjects = inputs?.max_projects ?? 3;
 
-      for (var j = 0; j < routedProjects.length && result.length < maxProjects; j++) {
-        var routed = routedProjects[j];
-        if (!routed) continue;
-        if (!routed.project_id) continue;
+      for (let j = 0; j < routedProjects.length && result.length < maxProjects; j++) {
+        const routed = routedProjects[j];
+        if (!routed?.project_id) continue;
 
-        var info = projectMap[routed.project_id];
+        const info = projectMap[routed.project_id];
         // Skip unknown project IDs (not in inputs.projects)
-        if (info == null) continue;
-        if (!info.repo) continue;
+        if (!info?.repo) continue;
 
         result.push({
           project_id: routed.project_id,
-          reason: routed.reason || '',
+          reason: routed.reason ?? '',
           repository: info.repo,
           description: info.description
         });
@@ -545,6 +573,22 @@ steps:
       - code-explorer tools (search, extract, query, listFiles, searchFiles)
       - delegate sub-agents when you need to dive deeply into a project
       - ensure that delegate sub-agents return detailed references with files and line numbers
+
+      IMPORTANT - Handling ambiguity:
+      If the question is ambiguous, unclear, or you need more details to provide
+      a useful answer, DO NOT guess or make assumptions. Instead:
+      - Clearly state what information is missing or unclear
+      - Ask specific clarifying questions
+      - Explain what you could investigate with more context
+
+      Examples of when to ask for clarification:
+      - "Which version/branch are you asking about?"
+      - "Are you asking about the gateway or dashboard implementation?"
+      - "Could you provide the specific error message or log output?"
+      - "Which repository or component is this related to?"
+
+      It's better to ask for clarification than to provide an incorrect or
+      irrelevant answer based on assumptions.
 
       Git bash commands:
       You can use git commands for deeper code investigation:
@@ -845,7 +889,7 @@ tests:
           - step: explore-code
             exactly: 1
 
-    - name: empty-routing-is-error
+    - name: empty-routing-returns-notes
       strict: false
       event: manual
       fixture: local.minimal
@@ -864,10 +908,14 @@ tests:
           ref: "main"
         route-projects:
           projects: []
+          notes: "I need more context to route this question."
       expect:
         calls:
           - step: route-projects
             exactly: 1
+        workflow_output:
+          - path: answer.text
+            equals: "I need more context to route this question."
 
     # =========================================================================
     # Edge Case: Checkout failure stops downstream checks
