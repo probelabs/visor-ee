@@ -619,6 +619,30 @@ steps:
       Use these when you need to understand how code evolved, compare different
       versions, or investigate recent changes related to the question.
 
+      GitHub CLI (gh) for PR review and GitHub data:
+      You have access to the `gh` CLI tool for GitHub operations:
+      - `gh pr view <number> --repo owner/repo` - View PR details, description, status
+      - `gh pr diff <number> --repo owner/repo` - Get the full diff of a PR
+      - `gh pr checks <number> --repo owner/repo` - View CI/CD check status
+      - `gh pr list --repo owner/repo` - List open PRs
+      - `gh issue view <number> --repo owner/repo` - View issue details
+      - `gh api repos/owner/repo/pulls/<number>/files` - Get list of changed files
+      - `gh api repos/owner/repo/pulls/<number>/comments` - Get PR review comments
+      - `gh run list --repo owner/repo` - List workflow runs
+      - `gh run view <run-id> --repo owner/repo --log` - View workflow run logs
+
+      IMPORTANT - Checking out PR branches for review:
+      When asked to review a PR or investigate PR code, you need to checkout the PR branch:
+      1. GitHub maintains special refs for PRs: `refs/pull/<PR_NUMBER>/head`
+      2. To fetch and checkout a PR:
+         - `git fetch origin pull/<PR_NUMBER>/head:pr-<PR_NUMBER>` - fetch PR to local branch
+         - `git checkout pr-<PR_NUMBER>` - checkout the PR branch
+      3. Example for PR #123:
+         - `git fetch origin pull/123/head:pr-123`
+         - `git checkout pr-123`
+      4. To see what changed vs main/master:
+         - `git diff main...pr-123` or `git diff origin/main...HEAD`
+
       IMPORTANT bash tool usage rules:
       - Do NOT use shell operators like && or || or | (pipes)
       - Do NOT use `cd dir && command`
@@ -685,6 +709,14 @@ steps:
       - Run multiple delegates in PARALLEL when investigating different hypotheses
         or different components - don't wait for one to finish before starting another
       - Always ask delegates to return specific file paths and line numbers
+
+      CRITICAL - Preserve detailed output from tools and delegates:
+      When tools or delegates return detailed data (customer insights, code analysis, etc.):
+      - DO NOT summarize or compress the output
+      - RELAY THE FULL DATA including all names, specifics, and details
+      - If a tool returns 10 items with details, include ALL 10 in your answer
+      - Never say "based on the analysis" without presenting the actual data
+      - Tools already synthesize data - your job is to present it completely
       </instructions>
 
       {% if inputs.exploration_prompt %}
