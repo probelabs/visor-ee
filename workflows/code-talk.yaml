@@ -103,9 +103,16 @@ outputs:
     value_js: |
       const result = outputs?.['explore-code'];
       if (result?.answer) return result.answer;
-      const routeNotes = outputs?.['route-projects']?.notes;
+      const routeOutput = outputs?.['route-projects'];
+      // Handle proper notes field
+      const routeNotes = routeOutput?.notes;
       if (typeof routeNotes === 'string' && routeNotes.trim().length > 0) {
         return { text: routeNotes };
+      }
+      // Fallback: if AI returned {text: "..."} instead of proper schema
+      const routeText = routeOutput?.text;
+      if (typeof routeText === 'string' && routeText.trim().length > 0) {
+        return { text: routeText };
       }
       return null;
 
