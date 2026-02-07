@@ -73,7 +73,12 @@ outputs:
   - name: intent
     description: Selected intent ID
     value_js: |
-      return outputs?.classify?.intent ?? null;
+      const intent = outputs?.classify?.intent ?? null;
+      // Check for invalid explicit intent
+      if (intent && intent.startsWith('INVALID_INTENT:')) {
+        return null; // Will be flagged as error
+      }
+      return intent;
 
   - name: topic
     description: Short question summarizing the request
@@ -89,6 +94,16 @@ outputs:
     description: Raw classifier output
     value_js: |
       return outputs?.classify ?? null;
+
+  - name: error
+    description: Error message if explicit %intent was invalid
+    value_js: |
+      const intent = outputs?.classify?.intent ?? null;
+      if (intent && intent.startsWith('INVALID_INTENT:')) {
+        const badIntent = intent.replace('INVALID_INTENT:', '');
+        return `Invalid explicit intent '%${badIntent}' - not found in available intents`;
+      }
+      return null;
 
 steps:
   classify:
@@ -180,6 +195,7 @@ steps:
       Always output a short, self-contained question (1-2 sentences).
       Do NOT answer the question or speculate about root causes.
       Only include details explicitly stated in the thread or ticket context.
+      Remove any #tag or %intent markers from the topic.
       </topic_instructions>
 
       <tag_instructions>
@@ -187,6 +203,23 @@ steps:
       Include only tags that clearly apply to the current request. Use an empty
       array if none apply.
       </tag_instructions>
+
+      <explicit_markers>
+      IMPORTANT: The user may include explicit markers in their message:
+
+      1. **Hash tags (#tag)**: If the message contains #tag_name patterns (e.g., "#codebase #urgent"),
+         you MUST include those exact tag IDs in the output tags array.
+         Example: "How does auth work? #codebase #security" → tags should include "codebase" and "security"
+
+      2. **Percent intent (%intent)**: If the message contains a %intent_name pattern (e.g., "%code_help"),
+         you MUST use that exact intent ID.
+         Example: "What is this function doing? %code_help" → intent should be "code_help"
+         If the specified intent is NOT in the available options, set intent to "INVALID_INTENT:the_specified_intent"
+         so the system can report an error.
+
+      Always strip the #tag and %intent markers from the topic output.
+      These markers take precedence over your classification.
+      </explicit_markers>
 
 # =============================================================================
 # Tests
@@ -226,3 +259,92 @@ tests:
             equals: "How does authentication work?"
           - path: tags
             equals: ["codebase"]
+
+    - name: explicit-hashtag-markers
+      description: "#tag markers should be automatically included in tags"
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "How does auth work? #codebase #security"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: questions about code or implementation details
+        tags:
+          - id: codebase
+            description: request needs codebase context
+          - id: security
+            description: security-related request
+          - id: urgent
+            description: urgent request
+      mocks:
+        classify:
+          intent: code_help
+          topic: "How does auth work?"
+          tags: ["codebase", "security"]
+      expect:
+        calls:
+          - step: classify
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+          - path: topic
+            equals: "How does auth work?"
+          - path: tags
+            contains: "codebase"
+          - path: tags
+            contains: "security"
+
+    - name: explicit-percent-intent
+      description: "%intent marker should set the intent directly"
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "What is this code doing? %code_help"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: questions about code or implementation details
+      mocks:
+        classify:
+          intent: code_help
+          topic: "What is this code doing?"
+          tags: []
+      expect:
+        calls:
+          - step: classify
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+          - path: topic
+            equals: "What is this code doing?"
+
+    - name: invalid-percent-intent
+      description: "Invalid %intent should return an error"
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "How do I deploy? %nonexistent_intent"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: questions about code or implementation details
+      mocks:
+        classify:
+          intent: "INVALID_INTENT:nonexistent_intent"
+          topic: "How do I deploy?"
+          tags: []
+      expect:
+        calls:
+          - step: classify
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: null
+          - path: error
+            contains: "Invalid explicit intent"
