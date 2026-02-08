@@ -4,6 +4,100 @@ Commercial workflows for [Visor](https://github.com/probelabs/visor).
 
 ## Workflows
 
+### assistant
+
+High-level AI assistant workflow with declarative configuration. Combines intent routing, dynamic tool selection, knowledge embedding, and code exploration into a single configurable workflow.
+
+**Features:**
+- Declarative intent and tag configuration
+- Automatic knowledge injection based on tags/intents
+- Dynamic MCP server loading based on tags/intents
+- Built-in code exploration integration
+- No boilerplate - just declare your config
+
+**Example:**
+```yaml
+imports:
+  - visor-ee://workflows/assistant.yaml
+
+checks:
+  ask:
+    type: human-input
+    prompt: "How can I help?"
+
+  chat:
+    type: workflow
+    depends_on: [ask]
+    workflow: assistant
+    args:
+      question: "{{ outputs['ask'].text }}"
+
+      # Define intents
+      intents:
+        - id: chat
+          description: general Q&A
+        - id: code_help
+          description: code questions
+
+      # Define tags
+      tags:
+        - id: codebase
+          description: needs code exploration
+        - id: jira
+          description: needs Jira access
+
+      # Knowledge injected based on tags
+      knowledge:
+        - tags: [capabilities]
+          content: |
+            ## Capabilities
+            I can help with code exploration and Jira integration.
+        - tags: [jira]
+          content: |
+            ## Jira Tools
+            Use jira_get_issue to fetch tickets.
+
+      # MCP servers loaded based on tags
+      mcp_servers:
+        - tags: [jira]
+          name: atlassian
+          server:
+            command: uvx
+            args: [mcp-atlassian]
+            env:
+              JIRA_URL: "${JIRA_URL}"
+
+      # Code exploration config
+      code_config:
+        enabled: true
+        architecture: "# My Architecture"
+        docs_repo: my-org/docs
+        projects:
+          - id: backend
+            repo: my-org/backend
+            description: Backend services
+    on_success:
+      goto: ask
+```
+
+**Inputs:**
+- `question`: The user's message
+- `intents`: Array of `{id, description}` for intent classification
+- `tags`: Array of `{id, description}` for tag classification
+- `knowledge`: Array of `{tags, intent, content}` for conditional knowledge injection
+- `mcp_servers`: Array of `{tags, intent, name, server}` for conditional tool loading
+- `code_config`: Object with `{enabled, architecture, docs_repo, projects, ...}`
+- `system_prompt`: Base system prompt
+- `guidelines`: Additional guidelines
+
+**Outputs:**
+- `text`: The AI response
+- `intent`: Classified intent
+- `tags`: Classified tags
+- `topic`: Rewritten question
+
+---
+
 ### code-talk
 
 AI-powered code exploration workflow that answers questions about your codebase with references.

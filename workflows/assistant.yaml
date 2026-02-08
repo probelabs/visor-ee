@@ -1,0 +1,861 @@
+# =============================================================================
+# assistant: High-level AI Assistant Workflow
+# =============================================================================
+#
+# A declarative, batteries-included workflow for building AI assistants.
+# Combines intent routing, dynamic tool selection, knowledge embedding,
+# and code exploration into a single configurable workflow.
+#
+# Just declare your:
+#   - Intents and tags
+#   - Knowledge documents (mapped to tags)
+#   - MCP servers (mapped to tags)
+#   - Code configuration (optional)
+#
+# The workflow handles all the wiring automatically.
+#
+# Usage:
+#   imports:
+#     - visor-ee://workflows/assistant.yaml
+#
+#   checks:
+#     chat:
+#       type: workflow
+#       workflow: assistant
+#       args:
+#         question: "{{ outputs['ask'].text }}"
+#         intents:
+#           - id: chat
+#             description: general Q&A
+#         tags:
+#           - id: jira
+#             description: needs Jira access
+#         knowledge:
+#           - tags: [capabilities]
+#             content: "I can help with..."
+#         mcp_servers:
+#           - tags: [jira]
+#             server:
+#               command: uvx
+#               args: [mcp-atlassian]
+#
+# =============================================================================
+
+id: assistant
+name: AI Assistant
+description: |
+  High-level AI assistant workflow with declarative configuration.
+  Handles intent routing, dynamic tools, and knowledge injection automatically.
+version: "1.0.0"
+
+# Note: These imports are relative to this file's location
+# When importing assistant.yaml from a URL, these become relative URLs
+imports:
+  - intent-router.yaml
+  - code-talk.yaml
+
+inputs:
+  # =========================================================================
+  # Core Input
+  # =========================================================================
+  - name: question
+    required: true
+    description: The user's question/message
+    schema:
+      type: string
+
+  - name: history
+    required: false
+    description: Conversation history (array of {role, text})
+    default: []
+    schema:
+      type: array
+
+  # =========================================================================
+  # Intent & Tag Configuration
+  # =========================================================================
+  - name: intents
+    required: true
+    description: |
+      Array of intent definitions for routing:
+        - id: unique identifier
+        - description: when to use this intent
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          id: { type: string }
+          description: { type: string }
+        required: [id, description]
+
+  - name: tags
+    required: false
+    description: |
+      Array of tag definitions for capability classification:
+        - id: unique identifier
+        - description: when to apply this tag
+    default: []
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          id: { type: string }
+          description: { type: string }
+        required: [id, description]
+
+  - name: routing_instructions
+    required: false
+    description: Additional routing rules for the intent classifier
+    default: ""
+    schema:
+      type: string
+
+  # =========================================================================
+  # Knowledge Configuration
+  # =========================================================================
+  - name: knowledge
+    required: false
+    description: |
+      Array of knowledge documents to inject based on tags:
+        - tags: array of tag IDs that trigger this knowledge
+        - content: the knowledge content to inject
+        - intent: (optional) specific intent that triggers this
+    default: []
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          tags:
+            type: array
+            items: { type: string }
+          intent:
+            type: string
+          content:
+            type: string
+        required: [content]
+
+  # =========================================================================
+  # MCP Server Configuration
+  # =========================================================================
+  - name: mcp_servers
+    required: false
+    description: |
+      Array of MCP servers to enable based on tags:
+        - tags: array of tag IDs that trigger this server
+        - intent: (optional) specific intent that triggers this
+        - name: server name (used as key in ai_mcp_servers)
+        - server: MCP server configuration object
+          For external servers: { command, args, env, allowedMethods }
+          For workflow tools: { workflow, inputs }
+          For built-in tools: { tool: 'tool-name' }
+    default: []
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          tags:
+            type: array
+            items: { type: string }
+          intent:
+            type: string
+          name:
+            type: string
+          server:
+            type: object
+        required: [name, server]
+
+  # =========================================================================
+  # Code Exploration Configuration
+  # =========================================================================
+  - name: code_config
+    required: false
+    description: |
+      Configuration for code exploration (enables code-talk tool):
+        - enabled: whether to enable code exploration
+        - tags: which tags trigger code exploration (default: [codebase])
+        - intents: which intents trigger code exploration (default: [code_help])
+        - architecture: architecture documentation
+        - docs_repo: documentation repository (owner/repo)
+        - docs_ref: git ref for docs (default: main)
+        - projects: array of code projects
+        - max_projects: maximum projects to checkout
+        - routing_prompt: additional routing instructions
+        - exploration_prompt: additional exploration instructions
+    schema:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        tags:
+          type: array
+          items: { type: string }
+        intents:
+          type: array
+          items: { type: string }
+        architecture: { type: string }
+        docs_repo: { type: string }
+        docs_ref: { type: string }
+        projects:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              repo: { type: string }
+              description: { type: string }
+        max_projects: { type: number }
+        routing_prompt: { type: string }
+        exploration_prompt: { type: string }
+
+  # =========================================================================
+  # AI Configuration
+  # =========================================================================
+  - name: system_prompt
+    required: false
+    description: Base system prompt for the AI
+    default: "You are a helpful AI assistant."
+    schema:
+      type: string
+
+  - name: guidelines
+    required: false
+    description: Guidelines to append to the prompt
+    default: ""
+    schema:
+      type: string
+
+  - name: max_iterations
+    required: false
+    description: Maximum AI iterations
+    default: 30
+    schema:
+      type: number
+
+# =========================================================================
+# Outputs
+# =========================================================================
+outputs:
+  - name: text
+    description: The AI response text
+    value_js: |
+      return outputs?.['generate-response']?.text ?? null;
+
+  - name: intent
+    description: The classified intent
+    value_js: |
+      return outputs?.['route-intent']?.intent ?? null;
+
+  - name: tags
+    description: The classified tags
+    value_js: |
+      return outputs?.['route-intent']?.tags ?? [];
+
+  - name: topic
+    description: The rewritten topic/question
+    value_js: |
+      return outputs?.['route-intent']?.topic ?? null;
+
+# =========================================================================
+# Steps
+# =========================================================================
+steps:
+  # -------------------------------------------------------------------------
+  # Step 1: Route intent and classify tags
+  # -------------------------------------------------------------------------
+  route-intent:
+    type: workflow
+    workflow: intent-router
+    criticality: internal
+    assume:
+      - "true"
+    guarantee: "output?.intent != null"
+    args:
+      question: "{{ inputs.question }}"
+      # Use expression syntax to pass arrays directly (not as JSON strings)
+      intents:
+        expression: "inputs.intents"
+      tags:
+        expression: "inputs.tags || []"
+      routing_instructions: "{{ inputs.routing_instructions }}"
+
+  # -------------------------------------------------------------------------
+  # Step 2: Build dynamic configuration for the AI step
+  # -------------------------------------------------------------------------
+  build-config:
+    type: script
+    criticality: internal
+    depends_on: [route-intent]
+    assume:
+      - "outputs['route-intent'] != null"
+    schema:
+      type: object
+      properties:
+        mcp_servers:
+          type: object
+        knowledge_content:
+          type: string
+    content: |
+      const intent = outputs['route-intent']?.intent ?? '';
+      const tags = outputs['route-intent']?.tags ?? [];
+      const question = inputs.question ?? '';
+
+      // Build MCP servers based on tags and intent
+      const servers = {};
+
+      // Process user-defined MCP servers
+      const mcpConfigs = Array.isArray(inputs.mcp_servers) ? inputs.mcp_servers : [];
+      for (const config of mcpConfigs) {
+        const serverTags = Array.isArray(config.tags) ? config.tags : [];
+        const serverIntent = config.intent;
+        const serverName = config.name;
+        const serverConfig = config.server;
+
+        if (!serverName || !serverConfig) continue;
+
+        // Check if this server should be enabled
+        let shouldEnable = false;
+
+        // Enable if any tag matches
+        if (serverTags.length > 0) {
+          for (const tag of serverTags) {
+            if (tags.includes(tag)) {
+              shouldEnable = true;
+              break;
+            }
+          }
+        }
+
+        // Enable if intent matches
+        if (serverIntent && intent === serverIntent) {
+          shouldEnable = true;
+        }
+
+        // If no tags or intent specified, always enable
+        if (serverTags.length === 0 && !serverIntent) {
+          shouldEnable = true;
+        }
+
+        if (shouldEnable) {
+          servers[serverName] = serverConfig;
+        }
+      }
+
+      // Process code_config - add code-talk as a tool if enabled
+      const codeConfig = inputs.code_config;
+      if (codeConfig?.enabled) {
+        const codeTags = codeConfig.tags ?? ['codebase'];
+        const codeIntents = codeConfig.intents ?? ['code_help'];
+
+        let shouldEnableCode = false;
+
+        // Check tags
+        for (const tag of codeTags) {
+          if (tags.includes(tag)) {
+            shouldEnableCode = true;
+            break;
+          }
+        }
+
+        // Check intents
+        if (codeIntents.includes(intent)) {
+          shouldEnableCode = true;
+        }
+
+        if (shouldEnableCode) {
+          servers['code-explorer'] = {
+            workflow: 'code-talk',
+            inputs: {
+              question: question,
+              architecture: codeConfig.architecture ?? '',
+              docs_repo: codeConfig.docs_repo ?? '',
+              docs_ref: codeConfig.docs_ref ?? 'main',
+              projects: codeConfig.projects ?? [],
+              max_projects: codeConfig.max_projects ?? 3,
+              routing_prompt: codeConfig.routing_prompt ?? '',
+              exploration_prompt: codeConfig.exploration_prompt ?? ''
+            }
+          };
+        }
+      }
+
+      // Build knowledge content based on tags and intent
+      const knowledgeParts = [];
+      const knowledgeConfigs = Array.isArray(inputs.knowledge) ? inputs.knowledge : [];
+
+      for (const config of knowledgeConfigs) {
+        const knowledgeTags = Array.isArray(config.tags) ? config.tags : [];
+        const knowledgeIntent = config.intent;
+        const content = config.content;
+
+        if (!content) continue;
+
+        let shouldInclude = false;
+
+        // Include if any tag matches
+        if (knowledgeTags.length > 0) {
+          for (const tag of knowledgeTags) {
+            if (tags.includes(tag)) {
+              shouldInclude = true;
+              break;
+            }
+          }
+        }
+
+        // Include if intent matches
+        if (knowledgeIntent && intent === knowledgeIntent) {
+          shouldInclude = true;
+        }
+
+        if (shouldInclude) {
+          knowledgeParts.push(content);
+        }
+      }
+
+      return {
+        mcp_servers: servers,
+        knowledge_content: knowledgeParts.join('\n\n')
+      };
+
+  # -------------------------------------------------------------------------
+  # Step 3: Generate response with dynamic tools and knowledge
+  # -------------------------------------------------------------------------
+  generate-response:
+    type: ai
+    criticality: internal
+    depends_on: [route-intent, build-config]
+    assume:
+      - "outputs['route-intent'] != null"
+      - "outputs['build-config'] != null"
+    guarantee: "(output?.text ?? '').length > 0"
+    ai:
+      max_iterations: "{{ inputs.max_iterations }}"
+      skip_code_context: true
+    ai_mcp_servers_js: |
+      // Return the pre-built MCP servers from build-config
+      return outputs['build-config']?.mcp_servers ?? {};
+    schema:
+      type: object
+      properties:
+        text:
+          type: string
+          description: The response to the user
+      required: [text]
+    prompt: |
+      {{ inputs.system_prompt }}
+
+      {% if inputs.history and inputs.history.size > 0 %}
+      <history>
+      {% for m in inputs.history %}
+      {{ m.role | capitalize }}: {{ m.text }}
+      {% endfor %}
+      </history>
+      {% endif %}
+
+      ## Current Request
+      User: {{ inputs.question }}
+
+      ## Classification
+      Intent: {{ outputs['route-intent'].intent }}
+      {% if outputs['route-intent'].tags and outputs['route-intent'].tags.size > 0 %}
+      Tags: {{ outputs['route-intent'].tags | join: ', ' }}
+      {% endif %}
+
+      {% if outputs['build-config'].knowledge_content and outputs['build-config'].knowledge_content != '' %}
+      {{ outputs['build-config'].knowledge_content }}
+      {% endif %}
+
+      {% if inputs.guidelines and inputs.guidelines != '' %}
+      ## Guidelines
+      {{ inputs.guidelines }}
+      {% endif %}
+
+# =============================================================================
+# Tests
+# =============================================================================
+tests:
+  defaults:
+    strict: true
+    ai_provider: mock
+
+  cases:
+    # =========================================================================
+    # Basic Routing Tests
+    # =========================================================================
+    - name: basic-chat-routing
+      description: Routes simple chat to correct intent
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Hello, how are you?"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: code questions
+        tags: []
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Hello, how are you?"
+          tags: []
+        generate-response:
+          text: "Hello! I'm doing well, how can I help you?"
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "chat"
+          - path: text
+            contains: "Hello"
+
+    - name: code-help-routing
+      description: Routes code questions with codebase tag
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "How does authentication work?"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: code questions
+        tags:
+          - id: codebase
+            description: needs code exploration
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "How does authentication work?"
+          tags: ["codebase"]
+        generate-response:
+          text: "Authentication is implemented using JWT tokens."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+          - path: tags
+            contains: "codebase"
+
+    # =========================================================================
+    # Knowledge Injection Tests
+    # =========================================================================
+    - name: knowledge-injection-by-tag
+      description: Injects knowledge when tag matches
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "What can you do?"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: capabilities
+            description: user asks about capabilities
+        knowledge:
+          - tags: ["capabilities"]
+            content: |
+              ## Capabilities
+              I can help with code exploration and task execution.
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "What can you do?"
+          tags: ["capabilities"]
+        generate-response:
+          text: "I can help with code exploration and task execution."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            contains: "capabilities"
+
+    - name: knowledge-injection-by-intent
+      description: Injects knowledge when intent matches
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "How does the API work?"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: code questions
+        knowledge:
+          - intent: code_help
+            content: |
+              ## Code Exploration
+              Use the code-explorer tool to search the codebase.
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "How does the API work?"
+          tags: []
+        generate-response:
+          text: "The API is implemented in the handlers package."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+
+    # =========================================================================
+    # MCP Server Tests
+    # =========================================================================
+    - name: mcp-server-enabled-by-tag
+      description: MCP server is enabled when tag matches
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: jira
+            description: needs Jira access
+        mcp_servers:
+          - tags: ["jira"]
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123"
+          tags: ["jira"]
+        generate-response:
+          text: "Here is ticket TT-123."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            contains: "jira"
+
+    - name: mcp-server-not-enabled-without-tag
+      description: MCP server is not enabled when tag doesn't match
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Hello"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: jira
+            description: needs Jira access
+        mcp_servers:
+          - tags: ["jira"]
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Hello"
+          tags: []  # No jira tag
+        generate-response:
+          text: "Hello!"
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            equals: []
+
+    # =========================================================================
+    # Code Config Tests
+    # =========================================================================
+    - name: code-explorer-enabled-by-intent
+      description: Code explorer enabled when code_help intent matches
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "How is auth implemented?"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: code questions
+        code_config:
+          enabled: true
+          architecture: "# My Architecture"
+          docs_repo: "my-org/docs"
+          projects:
+            - id: backend
+              repo: my-org/backend
+              description: Backend services
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "How is auth implemented?"
+          tags: []
+        generate-response:
+          text: "Auth is implemented in the auth package."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+
+    - name: code-explorer-enabled-by-tag
+      description: Code explorer enabled when codebase tag matches
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Find the user model"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: codebase
+            description: needs code exploration
+        code_config:
+          enabled: true
+          tags: ["codebase"]
+          architecture: "# My Architecture"
+          docs_repo: "my-org/docs"
+          projects:
+            - id: backend
+              repo: my-org/backend
+              description: Backend services
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Find the user model"
+          tags: ["codebase"]
+        generate-response:
+          text: "The user model is in models/user.go."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            contains: "codebase"
+
+    # =========================================================================
+    # Combined Tests
+    # =========================================================================
+    - name: full-config-with-all-features
+      description: All features working together
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Create a PR to fix the auth bug in TT-456"
+        system_prompt: "You are an engineering assistant."
+        guidelines: "Be concise and provide code references."
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: code questions
+        tags:
+          - id: codebase
+            description: needs code exploration
+          - id: engineer
+            description: needs code changes
+          - id: jira
+            description: needs Jira access
+        knowledge:
+          - tags: ["engineer"]
+            content: |
+              ## Engineering Guidelines
+              Always explore code first, then make changes.
+          - tags: ["jira"]
+            content: |
+              ## Jira Access
+              You can read and update Jira tickets.
+        mcp_servers:
+          - tags: ["jira"]
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+          - tags: ["engineer"]
+            name: engineer
+            server:
+              workflow: engineer
+              inputs: {}
+        code_config:
+          enabled: true
+          architecture: "# Architecture"
+          docs_repo: "my-org/docs"
+          projects:
+            - id: backend
+              repo: my-org/backend
+              description: Backend services
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "Fix auth bug in TT-456"
+          tags: ["codebase", "engineer", "jira"]
+        generate-response:
+          text: "Created PR #123 to fix the auth bug."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+          - path: tags
+            contains: "engineer"
+          - path: tags
+            contains: "jira"
+          - path: text
+            contains: "PR"
