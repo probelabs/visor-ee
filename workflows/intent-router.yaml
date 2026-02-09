@@ -54,6 +54,7 @@ inputs:
       Optional tag definitions to classify capabilities or resources needed:
         - id: tag identifier
         - description: when the tag applies
+      NOTE: Consider using 'skills' instead for unified skill-based classification.
     schema:
       type: array
       items:
@@ -61,6 +62,25 @@ inputs:
         properties:
           id: { type: string }
           description: { type: string }
+        required: [id, description]
+
+  - name: skills
+    required: false
+    description: |
+      Unified skill definitions for classification. Each skill bundles:
+        - id: skill identifier (used for classification and activation)
+        - description: when this skill should be activated
+        - requires: (optional) array of other skill IDs to auto-activate
+      When provided, skills are used instead of tags for classification.
+      The classifier will output selected skill IDs in the 'skills' array.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          id: { type: string }
+          description: { type: string }
+          requires: { type: array, items: { type: string } }
         required: [id, description]
 
   - name: routing_instructions
@@ -81,9 +101,15 @@ outputs:
       return outputs?.classify?.topic ?? null;
 
   - name: tags
-    description: Selected tag IDs
+    description: Selected tag IDs (legacy, use skills instead)
     value_js: |
       return outputs?.classify?.tags ?? [];
+
+  - name: skills
+    description: Selected skill IDs (dependencies expanded in assistant workflow)
+    value_js: |
+      // Return raw selected skills - dependencies are expanded in assistant's build-config
+      return outputs?.classify?.skills ?? [];
 
   - name: raw
     description: Raw classifier output
@@ -133,14 +159,21 @@ steps:
             "maxLength": 240,
             "pattern": "^[^`\\n]*\\?$"
           },
-          "tags": {
+          {% if inputs.skills and inputs.skills.size > 0 %}"skills": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [{% for s in inputs.skills %}"{{ s.id }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]
+            },
+            "maxItems": 12
+          }{% else %}"tags": {
             "type": "array",
             "items": {
               "type": "string"{% if inputs.tags and inputs.tags.size > 0 %},
               "enum": [{% for t in inputs.tags %}"{{ t.id }}"{% unless forloop.last %}, {% endunless %}{% endfor %}]{% endif %}
             },
             "maxItems": 12
-          },
+          }{% endif %},
           "rationale": {
             "type": "string"
           }
@@ -169,7 +202,17 @@ steps:
       {% endfor %}
       </intent_options>
 
-      {% if inputs.tags and inputs.tags.size > 0 %}
+      {% if inputs.skills and inputs.skills.size > 0 %}
+      <skill_options>
+      Select which skills should be activated for this request.
+      Multiple skills can be selected if needed.
+      {% for s in inputs.skills %}
+      <option value="{{ s.id }}">
+      {{ s.description }}
+      </option>
+      {% endfor %}
+      </skill_options>
+      {% elsif inputs.tags and inputs.tags.size > 0 %}
       <tag_options>
       {% for t in inputs.tags %}
       <option value="{{ t.id }}">
@@ -192,18 +235,33 @@ steps:
       Remove any #tag or %intent markers from the topic.
       </topic_instructions>
 
+      {% if inputs.skills and inputs.skills.size > 0 %}
+      <skill_instructions>
+      Return a "skills" array of zero or more skill IDs that should be activated.
+      Include only skills that clearly apply to the current request.
+      Multiple skills can be selected - each skill provides specific knowledge and/or tools.
+      Use an empty array if no skills apply.
+      </skill_instructions>
+      {% else %}
       <tag_instructions>
       If tag options are provided, return a "tags" array of zero or more tag IDs.
       Include only tags that clearly apply to the current request. Use an empty
       array if none apply.
       </tag_instructions>
+      {% endif %}
 
       <explicit_markers>
       IMPORTANT: The user may include explicit markers in their message:
 
+      {% if inputs.skills and inputs.skills.size > 0 %}
+      1. **Hash skills (#skill)**: If the message contains #skill_name patterns (e.g., "#jira #engineer"),
+         you MUST include those exact skill IDs in the output skills array (only if they match available skills).
+         Example: "Create a ticket for this bug #jira" → skills should include "jira"
+      {% else %}
       1. **Hash tags (#tag)**: If the message contains #tag_name patterns (e.g., "#codebase #urgent"),
          you MUST include those exact tag IDs in the output tags array (only if they match available tags).
          Example: "How does auth work? #codebase #security" → tags should include "codebase" and "security"
+      {% endif %}
 
       2. **Percent intent (%intent)**: If the message contains a %intent_name pattern (e.g., "%code_help"),
          you MUST use that exact intent ID if it matches one of the available intents.
@@ -211,7 +269,7 @@ steps:
          If the specified %intent does NOT match any available option, include an error note in the
          rationale field like "ERROR: explicit intent 'xyz' not found" and pick the closest matching intent.
 
-      Always strip the #tag and %intent markers from the topic output.
+      Always strip the #skill/#tag and %intent markers from the topic output.
       These explicit markers take precedence over your classification when they match valid options.
       </explicit_markers>
 
@@ -343,3 +401,69 @@ tests:
             equals: "chat"
           - path: error
             contains: "ERROR:"
+
+    - name: skills-based-classification
+      description: "Skills replace tags for unified classification"
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123 and create a PR to fix it"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: questions about code or implementation
+        skills:
+          - id: jira
+            description: request references Jira tickets
+          - id: engineer
+            description: user wants code changes or PR created
+          - id: code-explorer
+            description: needs codebase exploration
+      mocks:
+        classify:
+          intent: code_help
+          topic: "Fix ticket TT-123 and create a PR?"
+          skills: ["jira", "engineer"]
+      expect:
+        calls:
+          - step: classify
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+          - path: skills
+            contains: "jira"
+          - path: skills
+            contains: "engineer"
+
+    - name: skills-no-tags-fallback
+      description: "Skills mode outputs skills, not tags"
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Create a Jira ticket for this bug"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: request references Jira tickets
+          - id: jira-creation
+            description: user wants to create or modify a Jira ticket
+      mocks:
+        classify:
+          intent: chat
+          topic: "Create a Jira ticket for this bug?"
+          skills: ["jira", "jira-creation"]
+      expect:
+        calls:
+          - step: classify
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "chat"
+          - path: skills
+            contains: "jira"
+          - path: skills
+            contains: "jira-creation"

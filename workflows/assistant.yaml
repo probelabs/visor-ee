@@ -169,6 +169,46 @@ inputs:
         required: [name, server]
 
   # =========================================================================
+  # Skills Configuration (unified knowledge + tools)
+  # =========================================================================
+  - name: skills
+    required: false
+    description: |
+      Array of skill definitions that bundle knowledge and MCP servers together.
+      Each skill combines related functionality in one place:
+        - id: unique skill identifier
+        - tags: array of tag IDs that trigger this skill
+        - intent: (optional) specific intent that triggers this skill
+        - name: server name for the MCP tool
+        - knowledge: knowledge content to inject when skill is active
+        - server: (optional) MCP server configuration
+          For external servers: { command, args, env, allowedMethods }
+          For workflow tools: { workflow, inputs }
+          For built-in tools: { tool: 'tool-name' }
+
+      Skills are merged with standalone knowledge[] and mcp_servers[] configs.
+    default: []
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          tags:
+            type: array
+            items: { type: string }
+          intent:
+            type: string
+          name:
+            type: string
+          knowledge:
+            type: string
+          server:
+            type: object
+        required: [id]
+
+  # =========================================================================
   # Code Exploration Configuration
   # =========================================================================
   - name: code_config
@@ -263,7 +303,7 @@ outputs:
 # =========================================================================
 steps:
   # -------------------------------------------------------------------------
-  # Step 1: Route intent and classify tags
+  # Step 1: Route intent and classify skills (or tags for backwards compat)
   # -------------------------------------------------------------------------
   route-intent:
     type: workflow
@@ -277,6 +317,17 @@ steps:
       # Use expression syntax to pass arrays directly (not as JSON strings)
       intents:
         expression: "inputs.intents"
+      # Pass skills if provided (unified mode), otherwise fall back to tags
+      skills:
+        expression: |
+          // If skills have descriptions, pass them for classification
+          const skills = inputs.skills || [];
+          // Extract id and description for classification
+          return skills.filter(s => s.description).map(s => ({
+            id: s.id,
+            description: s.description,
+            requires: s.requires || []
+          }));
       tags:
         expression: "inputs.tags || []"
       routing_instructions: "{{ inputs.routing_instructions }}"
@@ -302,10 +353,107 @@ steps:
       const tags = outputs['route-intent']?.tags ?? [];
       const question = inputs.question ?? '';
 
-      // Build MCP servers based on tags and intent
-      const servers = {};
+      // Get activated skill IDs from router and expand dependencies
+      const rawSelectedSkills = outputs['route-intent']?.skills ?? [];
+      const skillConfigs = Array.isArray(inputs.skills) ? inputs.skills : [];
 
-      // Process user-defined MCP servers
+      // Build requires map for dependency expansion
+      const requiresMap = {};
+      for (let i = 0; i < skillConfigs.length; i++) {
+        const skill = skillConfigs[i];
+        if (skill.id && Array.isArray(skill.requires)) {
+          requiresMap[skill.id] = skill.requires;
+        }
+      }
+
+      // Expand selected skills to include their dependencies using array
+      const activatedSkillsArr = Array.isArray(rawSelectedSkills) ? rawSelectedSkills.slice() : [];
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const currentSkills = activatedSkillsArr.slice();
+        for (let i = 0; i < currentSkills.length; i++) {
+          const skillId = currentSkills[i];
+          const deps = requiresMap[skillId] || [];
+          for (let j = 0; j < deps.length; j++) {
+            const dep = deps[j];
+            if (activatedSkillsArr.indexOf(dep) === -1) {
+              activatedSkillsArr.push(dep);
+              changed = true;
+            }
+          }
+        }
+      }
+
+      const activatedSkills = activatedSkillsArr;
+      const activatedSkillSet = {};
+      for (let i = 0; i < activatedSkills.length; i++) {
+        activatedSkillSet[activatedSkills[i]] = true;
+      }
+
+      // Helper function to check if tags/intent match (for backwards compatibility)
+      function shouldActivateByTagsOrIntent(itemTags, itemIntent) {
+        // Check if any tag matches
+        if (itemTags && itemTags.length > 0) {
+          for (const tag of itemTags) {
+            if (tags.includes(tag)) {
+              return true;
+            }
+          }
+        }
+        // Check if intent matches
+        if (itemIntent && intent === itemIntent) {
+          return true;
+        }
+        return false;
+      }
+
+      // Build MCP servers and knowledge from skills + standalone configs
+      const servers = {};
+      const knowledgeParts = [];
+
+      // =========================================================================
+      // Process skills - check by ID if skills mode, or by tags/intent otherwise
+      // =========================================================================
+      const usingSkillsMode = activatedSkills.length > 0;
+
+      // Track code_config from skills (skill-based code config takes precedence)
+      let skillCodeConfig = null;
+
+      for (const skill of skillConfigs) {
+        let isActive = false;
+
+        if (usingSkillsMode) {
+          // Skills mode: check if this skill ID was selected by the router
+          isActive = activatedSkillSet[skill.id] === true;
+        } else {
+          // Legacy mode: check by tags/intent
+          const skillTags = Array.isArray(skill.tags) ? skill.tags : [];
+          const skillIntent = skill.intent;
+          isActive = shouldActivateByTagsOrIntent(skillTags, skillIntent);
+        }
+
+        if (isActive) {
+          // Add knowledge if present
+          if (skill.knowledge) {
+            knowledgeParts.push(skill.knowledge);
+          }
+
+          // Add server if present (but not if skill has code_config - that's handled separately)
+          if (skill.server && skill.name && !skill.code_config) {
+            servers[skill.name] = skill.server;
+          }
+
+          // Extract code_config from skill if present
+          if (skill.code_config) {
+            skillCodeConfig = skill.code_config;
+          }
+        }
+      }
+
+      // =========================================================================
+      // Process standalone MCP servers (for backwards compatibility)
+      // =========================================================================
       const mcpConfigs = Array.isArray(inputs.mcp_servers) ? inputs.mcp_servers : [];
       for (const config of mcpConfigs) {
         const serverTags = Array.isArray(config.tags) ? config.tags : [];
@@ -316,22 +464,7 @@ steps:
         if (!serverName || !serverConfig) continue;
 
         // Check if this server should be enabled
-        let shouldEnable = false;
-
-        // Enable if any tag matches
-        if (serverTags.length > 0) {
-          for (const tag of serverTags) {
-            if (tags.includes(tag)) {
-              shouldEnable = true;
-              break;
-            }
-          }
-        }
-
-        // Enable if intent matches
-        if (serverIntent && intent === serverIntent) {
-          shouldEnable = true;
-        }
+        let shouldEnable = shouldActivateByTagsOrIntent(serverTags, serverIntent);
 
         // If no tags or intent specified, always enable
         if (serverTags.length === 0 && !serverIntent) {
@@ -343,25 +476,31 @@ steps:
         }
       }
 
+      // =========================================================================
       // Process code_config - add code-talk as a tool if enabled
-      const codeConfig = inputs.code_config;
+      // Supports both inputs.code_config (legacy) and skill.code_config (unified)
+      // =========================================================================
+      const codeConfig = skillCodeConfig ?? inputs.code_config;
       if (codeConfig?.enabled) {
         const codeTags = codeConfig.tags ?? ['codebase'];
         const codeIntents = codeConfig.intents ?? ['code_help'];
 
         let shouldEnableCode = false;
 
-        // Check tags
-        for (const tag of codeTags) {
-          if (tags.includes(tag)) {
-            shouldEnableCode = true;
-            break;
-          }
-        }
-
-        // Check intents
-        if (codeIntents.includes(intent)) {
+        // If code_config came from an activated skill, it's already enabled
+        if (skillCodeConfig) {
           shouldEnableCode = true;
+        } else {
+          // Legacy mode: check tags/intents
+          for (const tag of codeTags) {
+            if (tags.includes(tag)) {
+              shouldEnableCode = true;
+              break;
+            }
+          }
+          if (codeIntents.includes(intent)) {
+            shouldEnableCode = true;
+          }
         }
 
         if (shouldEnableCode) {
@@ -381,8 +520,9 @@ steps:
         }
       }
 
-      // Build knowledge content based on tags and intent
-      const knowledgeParts = [];
+      // =========================================================================
+      // Process standalone knowledge (for backwards compatibility)
+      // =========================================================================
       const knowledgeConfigs = Array.isArray(inputs.knowledge) ? inputs.knowledge : [];
 
       for (const config of knowledgeConfigs) {
@@ -392,22 +532,7 @@ steps:
 
         if (!content) continue;
 
-        let shouldInclude = false;
-
-        // Include if any tag matches
-        if (knowledgeTags.length > 0) {
-          for (const tag of knowledgeTags) {
-            if (tags.includes(tag)) {
-              shouldInclude = true;
-              break;
-            }
-          }
-        }
-
-        // Include if intent matches
-        if (knowledgeIntent && intent === knowledgeIntent) {
-          shouldInclude = true;
-        }
+        let shouldInclude = shouldActivateByTagsOrIntent(knowledgeTags, knowledgeIntent);
 
         if (shouldInclude) {
           knowledgeParts.push(content);
@@ -785,6 +910,378 @@ tests:
             contains: "codebase"
 
     # =========================================================================
+    # Unified Skills Tests (with description - skills as classification targets)
+    # =========================================================================
+    - name: unified-skills-classification
+      description: Skills with descriptions are used for direct classification
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: request references Jira tickets
+            name: atlassian
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch tickets.
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+          - id: zendesk
+            description: request references Zendesk tickets
+            name: zendesk
+            knowledge: |
+              ## Zendesk Tools
+              Use zendesk tools for support.
+            server:
+              command: uvx
+              args: ["zendesk-mcp"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123?"
+          skills: ["jira"]
+        generate-response:
+          text: "Here is ticket TT-123."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "chat"
+
+    - name: unified-skills-with-requires
+      description: Skill dependencies are automatically activated
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Create a PR to fix the bug"
+        intents:
+          - id: chat
+            description: general Q&A
+          - id: code_help
+            description: code questions
+        skills:
+          - id: code-explorer
+            description: needs codebase exploration
+            name: code-talk
+            knowledge: |
+              ## Code Explorer
+              Use to search codebase.
+            server:
+              workflow: code-talk
+              inputs: {}
+          - id: engineer
+            description: user wants code changes or PR created
+            requires: [code-explorer]
+            name: engineer
+            knowledge: |
+              ## Engineer Tool
+              Use to make changes and create PRs.
+            server:
+              workflow: engineer
+              inputs: {}
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "Create a PR to fix the bug?"
+          skills: ["engineer", "code-explorer"]
+        generate-response:
+          text: "Created PR #123."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: intent
+            equals: "code_help"
+
+    - name: circular-dependency-handled
+      description: Circular skill dependencies don't cause infinite loops
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Help me with A"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: skill-a
+            description: skill A functionality
+            requires: [skill-b]
+            knowledge: |
+              ## Skill A
+              This is skill A.
+          - id: skill-b
+            description: skill B functionality
+            requires: [skill-a]
+            knowledge: |
+              ## Skill B
+              This is skill B.
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Help me with A?"
+          skills: ["skill-a"]
+        generate-response:
+          text: "Done with A and B."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+
+    - name: deep-dependency-chain
+      description: Deep skill dependency chains are fully expanded (A → B → C → D)
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Help me with task A"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: skill-a
+            description: top level skill
+            requires: [skill-b]
+            knowledge: "Skill A knowledge"
+          - id: skill-b
+            description: mid level skill
+            requires: [skill-c]
+            knowledge: "Skill B knowledge"
+          - id: skill-c
+            description: lower level skill
+            requires: [skill-d]
+            knowledge: "Skill C knowledge"
+          - id: skill-d
+            description: base level skill
+            knowledge: "Skill D knowledge"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Help me with task A?"
+          skills: ["skill-a"]
+        generate-response:
+          text: "All skills activated."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+
+    - name: diamond-dependency-pattern
+      description: Diamond dependencies (A → B+C, B → D, C → D) don't duplicate D
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Run skill A"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: skill-a
+            description: top skill requiring B and C
+            requires: [skill-b, skill-c]
+            knowledge: "Skill A"
+          - id: skill-b
+            description: left branch requiring D
+            requires: [skill-d]
+            knowledge: "Skill B"
+          - id: skill-c
+            description: right branch requiring D
+            requires: [skill-d]
+            knowledge: "Skill C"
+          - id: skill-d
+            description: common base skill
+            knowledge: "Skill D"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Run skill A?"
+          skills: ["skill-a"]
+        generate-response:
+          text: "Diamond pattern handled."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+
+    - name: self-referencing-skill
+      description: Skill that requires itself doesn't cause infinite loop
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Use recursive skill"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: self-skill
+            description: skill that references itself
+            requires: [self-skill]
+            knowledge: "Self-referencing skill"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Use recursive skill?"
+          skills: ["self-skill"]
+        generate-response:
+          text: "Self-reference handled."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+
+    # =========================================================================
+    # Skills Tests (legacy - using tags for activation)
+    # =========================================================================
+    - name: skill-activates-knowledge-and-server
+      description: Skill activates both knowledge and server when tag matches
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: jira
+            description: needs Jira access
+        skills:
+          - id: jira
+            tags: ["jira"]
+            name: atlassian
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch ticket details.
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123"
+          tags: ["jira"]
+        generate-response:
+          text: "Here is ticket TT-123."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            contains: "jira"
+
+    - name: skill-inactive-when-no-tag-match
+      description: Skill stays inactive when no tags match
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Hello"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: jira
+            description: needs Jira access
+        skills:
+          - id: jira
+            tags: ["jira"]
+            name: atlassian
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch ticket details.
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Hello"
+          tags: []
+        generate-response:
+          text: "Hello!"
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            equals: []
+
+    - name: skill-with-knowledge-only
+      description: Skill can have knowledge without a server
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "What can you do?"
+        intents:
+          - id: chat
+            description: general Q&A
+        tags:
+          - id: capabilities
+            description: user asks about capabilities
+        skills:
+          - id: capabilities
+            tags: ["capabilities"]
+            knowledge: |
+              ## Capabilities
+              I can help with code exploration and Jira.
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "What can you do?"
+          tags: ["capabilities"]
+        generate-response:
+          text: "I can help with code exploration and Jira."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        workflow_output:
+          - path: tags
+            contains: "capabilities"
+
+    # =========================================================================
     # Combined Tests
     # =========================================================================
     - name: full-config-with-all-features
@@ -859,3 +1356,408 @@ tests:
             contains: "jira"
           - path: text
             contains: "PR"
+
+    # =========================================================================
+    # Prompt Content Assertions
+    # =========================================================================
+    - name: prompt-contains-skill-knowledge
+      description: Skill knowledge is injected into prompt when skill activates
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: needs Jira access
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch ticket details.
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123"
+          skills: ["jira"]
+        generate-response:
+          text: "Here is ticket TT-123."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        prompts:
+          - step: generate-response
+            contains:
+              - "## Jira Tools"
+              - "jira_get_issue"
+        outputs:
+          - step: build-config
+            path: knowledge_content
+            matches: "Jira Tools"
+
+    - name: prompt-excludes-inactive-skill-knowledge
+      description: Knowledge from inactive skills is NOT in prompt
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Hello there"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: needs Jira access
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch ticket details.
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+          - id: capabilities
+            description: what can you do
+            knowledge: |
+              ## My Capabilities
+              I can help with code and tickets.
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Hello there"
+          skills: []
+        generate-response:
+          text: "Hello!"
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        prompts:
+          - step: generate-response
+            not_contains:
+              - "## Jira Tools"
+              - "## My Capabilities"
+        outputs:
+          - step: build-config
+            path: knowledge_content
+            equals: ""
+
+    - name: prompt-contains-multiple-skill-knowledge
+      description: Multiple activated skills inject their knowledge into prompt
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123 and explore the code"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: needs Jira access
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch ticket details.
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+          - id: code-explorer
+            description: needs code exploration
+            knowledge: |
+              ## Code Exploration
+              Use code-explorer tool to search code.
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123 and explore the code"
+          skills: ["jira", "code-explorer"]
+        generate-response:
+          text: "Found ticket and code."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        prompts:
+          - step: generate-response
+            contains:
+              - "## Jira Tools"
+              - "## Code Exploration"
+        outputs:
+          - step: build-config
+            path: knowledge_content
+            matches: "Jira Tools"
+          - step: build-config
+            path: knowledge_content
+            matches: "Code Exploration"
+
+    # =========================================================================
+    # MCP Server Configuration Assertions
+    # =========================================================================
+    - name: mcp-server-added-when-skill-activates
+      description: MCP server is configured when skill with server activates
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: needs Jira access
+            knowledge: "Jira knowledge"
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+              env:
+                JIRA_URL: "https://jira.example.com"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123"
+          skills: ["jira"]
+        generate-response:
+          text: "Here is ticket TT-123."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers.atlassian.command
+            equals: "uvx"
+          - step: build-config
+            path: mcp_servers.atlassian.args
+            equalsDeep: ["mcp-atlassian"]
+          - step: build-config
+            path: mcp_servers.atlassian.env.JIRA_URL
+            equals: "https://jira.example.com"
+
+    - name: mcp-server-not-added-when-skill-inactive
+      description: MCP server is NOT configured when skill is inactive
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Hello"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: needs Jira access
+            knowledge: "Jira knowledge"
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Hello"
+          skills: []
+        generate-response:
+          text: "Hello!"
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers
+            equalsDeep: {}
+
+    - name: multiple-mcp-servers-from-multiple-skills
+      description: Multiple MCP servers configured when multiple skills activate
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Get ticket TT-123 and check Zendesk"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: jira
+            description: needs Jira access
+            name: atlassian
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+          - id: zendesk
+            description: needs Zendesk access
+            name: zendesk-server
+            server:
+              command: uvx
+              args: ["mcp-zendesk"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Get ticket TT-123 and check Zendesk"
+          skills: ["jira", "zendesk"]
+        generate-response:
+          text: "Found tickets."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers.atlassian.command
+            equals: "uvx"
+          - step: build-config
+            path: mcp_servers.zendesk-server.command
+            equals: "uvx"
+
+    - name: skill-dependency-adds-server-from-required-skill
+      description: Required skill's MCP server is added via dependency expansion
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Create a ticket with jira"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: ticket-creator
+            description: create tickets
+            requires: [jira]
+            knowledge: "Ticket creation guide"
+          - id: jira
+            description: jira access
+            name: atlassian
+            knowledge: "Jira knowledge"
+            server:
+              command: uvx
+              args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Create a ticket"
+          skills: ["ticket-creator"]
+        generate-response:
+          text: "Created ticket."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        prompts:
+          - step: generate-response
+            contains:
+              - "Ticket creation guide"
+              - "Jira knowledge"
+        outputs:
+          - step: build-config
+            path: mcp_servers.atlassian.command
+            equals: "uvx"
+          - step: build-config
+            path: knowledge_content
+            matches: "Ticket creation guide"
+          - step: build-config
+            path: knowledge_content
+            matches: "Jira knowledge"
+
+    # =========================================================================
+    # Code Config Tests
+    # =========================================================================
+    - name: code-config-adds-code-explorer-tool
+      description: Skill with code_config adds code-explorer MCP server
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "How does authentication work?"
+        intents:
+          - id: code_help
+            description: code questions
+        skills:
+          - id: code-explorer
+            description: code exploration
+            knowledge: "Use code-explorer for questions"
+            code_config:
+              enabled: true
+              architecture: "# My Architecture"
+              docs_repo: "my-org/docs"
+              projects:
+                - id: backend
+                  repo: my-org/backend
+                  description: Backend services
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "How does authentication work?"
+          skills: ["code-explorer"]
+        generate-response:
+          text: "Auth is implemented in backend."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers.code-explorer.workflow
+            equals: "code-talk"
+          - step: build-config
+            path: mcp_servers.code-explorer.inputs.architecture
+            equals: "# My Architecture"
+          - step: build-config
+            path: mcp_servers.code-explorer.inputs.docs_repo
+            equals: "my-org/docs"
+
+    - name: code-config-not-added-when-skill-inactive
+      description: Code explorer not added when code-explorer skill is inactive
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Hello"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: code-explorer
+            description: code exploration
+            code_config:
+              enabled: true
+              architecture: "# My Architecture"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Hello"
+          skills: []
+        generate-response:
+          text: "Hello!"
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers
+            equalsDeep: {}
