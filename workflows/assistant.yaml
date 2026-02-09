@@ -249,6 +249,7 @@ inputs:
                   type: string
                   description: Built-in tool name (for built-in tools)
         required: [id]
+        additionalProperties: false
 
   # =========================================================================
   # AI Configuration
