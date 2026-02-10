@@ -568,6 +568,27 @@ steps:
     ai:
       max_iterations: "{{ inputs.max_iterations }}"
       skip_code_context: true
+      # Disable built-in probe tools - this agent should use workflow tools
+      # (code-talk, engineer, etc.) for code exploration, not search directly
+      # (which would search in an empty workspace and find nothing)
+      allowedTools:
+        - "*"
+        - "!search"
+        - "!extract"
+        - "!listFiles"
+        - "!searchFiles"
+        - "!query"
+        - "!analyze_all"
+        - "!useSkill"
+        - "!listSkills"
+      # Allow bash for GitHub Actions debugging (gh CLI commands)
+      allowBash: true
+      bashConfig:
+        allow:
+          - "gh:*"
+          - "curl:*"
+          - "jq:*"
+        timeout: 60000
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
@@ -598,6 +619,9 @@ steps:
 
       ## Classification
       Intent: {{ outputs['route-intent'].intent }}
+      {% if outputs['route-intent'].skills and outputs['route-intent'].skills.size > 0 %}
+      Skills: {{ outputs['route-intent'].skills | join: ', ' }}
+      {% endif %}
       {% if outputs['route-intent'].tags and outputs['route-intent'].tags.size > 0 %}
       Tags: {{ outputs['route-intent'].tags | join: ', ' }}
       {% endif %}
