@@ -342,6 +342,8 @@ steps:
           type: object
         knowledge_content:
           type: string
+        bash_config:
+          type: object
     content: |
       const intent = outputs['route-intent']?.intent ?? '';
       const tags = outputs['route-intent']?.tags ?? [];
@@ -423,9 +425,11 @@ steps:
         return false;
       }
 
-      // Build MCP servers and knowledge from skills + standalone configs
+      // Build MCP servers, knowledge, and bash config from skills + standalone configs
       const servers = {};
       const knowledgeParts = [];
+      const allAllowedCommands = [];
+      const allDisallowedCommands = [];
 
       // =========================================================================
       // Process skills - check by ID if skills mode, or by tags/intent otherwise
@@ -464,6 +468,24 @@ steps:
           }
           parts.push('</skill>');
           knowledgeParts.push(parts.join('\n'));
+
+          // Collect bash command permissions
+          if (Array.isArray(skill.allowed_commands)) {
+            for (let i = 0; i < skill.allowed_commands.length; i++) {
+              const cmd = skill.allowed_commands[i];
+              if (typeof cmd === 'string' && allAllowedCommands.indexOf(cmd) === -1) {
+                allAllowedCommands.push(cmd);
+              }
+            }
+          }
+          if (Array.isArray(skill.disallowed_commands)) {
+            for (let i = 0; i < skill.disallowed_commands.length; i++) {
+              const cmd = skill.disallowed_commands[i];
+              if (typeof cmd === 'string' && allDisallowedCommands.indexOf(cmd) === -1) {
+                allDisallowedCommands.push(cmd);
+              }
+            }
+          }
 
           // Add tools if present
           if (skill.tools && typeof skill.tools === 'object') {
@@ -561,9 +583,22 @@ steps:
         log('[build-config] First server config:', JSON.stringify(servers[serverNames[0]]).substring(0, 200));
       }
 
+      // Build bash_config from aggregated skill permissions
+      const bashConfig = {};
+      if (allAllowedCommands.length > 0) {
+        bashConfig.allow = allAllowedCommands;
+      }
+      if (allDisallowedCommands.length > 0) {
+        bashConfig.deny = allDisallowedCommands;
+      }
+      if (allAllowedCommands.length > 0 || allDisallowedCommands.length > 0) {
+        log('[build-config] Bash config from skills:', JSON.stringify(bashConfig));
+      }
+
       return {
         mcp_servers: servers,
-        knowledge_content: knowledgeParts.join('\n\n')
+        knowledge_content: knowledgeParts.join('\n\n'),
+        bash_config: bashConfig
       };
 
   # -------------------------------------------------------------------------
@@ -604,6 +639,9 @@ steps:
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
+    ai_bash_config_js: |
+      // Return the pre-built bash config from build-config (skill-based permissions)
+      return outputs['build-config']?.bash_config ?? {};
     schema:
       type: object
       properties:
@@ -1855,3 +1893,214 @@ tests:
           - step: build-config
             path: mcp_servers
             equalsDeep: {}
+
+    # =========================================================================
+    # Bash Config from Skills Tests
+    # =========================================================================
+    - name: bash-config-from-single-skill
+      description: Bash config aggregates allowed_commands from a single active skill
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "List open PRs"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: github
+            description: GitHub browsing
+            allowed_commands:
+              - 'gh *'
+            knowledge: "Use gh CLI"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "List open PRs"
+          skills: ["github"]
+        generate-response:
+          text: "Here are the open PRs."
+      expect:
+        calls:
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: bash_config.allow
+            equalsDeep: ["gh *"]
+
+    - name: bash-config-from-multiple-skills
+      description: Bash config merges allowed_commands from multiple active skills
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Create a PR for the fix"
+        intents:
+          - id: code_help
+            description: code questions
+        skills:
+          - id: github
+            description: GitHub browsing
+            allowed_commands:
+              - 'gh *'
+            knowledge: "Use gh CLI"
+          - id: engineer
+            description: code changes
+            allowed_commands:
+              - 'git *'
+              - 'npm *'
+            knowledge: "Engineer tool"
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "Create a PR"
+          skills: ["github", "engineer"]
+        generate-response:
+          text: "PR created."
+      expect:
+        calls:
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: bash_config.allow
+            equalsDeep: ["gh *", "git *", "npm *"]
+
+    - name: bash-config-deduplicates-commands
+      description: Bash config deduplicates overlapping allowed_commands
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Debug CI and check PRs"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: github
+            description: GitHub browsing
+            allowed_commands:
+              - 'gh *'
+            knowledge: "GitHub tools"
+          - id: github-actions
+            description: CI debugging
+            allowed_commands:
+              - 'gh *'
+            knowledge: "CI debugging"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Debug CI"
+          skills: ["github", "github-actions"]
+        generate-response:
+          text: "CI status checked."
+      expect:
+        calls:
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: bash_config.allow
+            equalsDeep: ["gh *"]
+
+    - name: bash-config-empty-when-no-commands
+      description: Bash config is empty when no active skills have commands
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "What can you do?"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: capabilities
+            description: assistant capabilities
+            knowledge: "I can help with many things"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "capabilities"
+          skills: ["capabilities"]
+        generate-response:
+          text: "I can help with code and more."
+      expect:
+        calls:
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: bash_config
+            equalsDeep: {}
+
+    - name: bash-config-with-disallowed-commands
+      description: Bash config includes disallowed_commands in deny list
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Run some commands"
+        intents:
+          - id: chat
+            description: general Q&A
+        skills:
+          - id: restricted
+            description: restricted skill
+            allowed_commands:
+              - 'npm test'
+            disallowed_commands:
+              - 'rm *'
+              - 'sudo *'
+            knowledge: "Restricted skill"
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Run commands"
+          skills: ["restricted"]
+        generate-response:
+          text: "Done."
+      expect:
+        calls:
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: bash_config.allow
+            equalsDeep: ["npm test"]
+          - step: build-config
+            path: bash_config.deny
+            equalsDeep: ["rm *", "sudo *"]
+
+    - name: bash-config-from-dependency-expansion
+      description: Bash config includes commands from dependency-expanded skills
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Implement the feature"
+        intents:
+          - id: code_help
+            description: code questions
+        skills:
+          - id: code-explorer
+            description: code exploration
+            allowed_commands:
+              - 'git log *'
+            knowledge: "Code explorer"
+          - id: engineer
+            description: code changes
+            requires: [code-explorer]
+            allowed_commands:
+              - 'git *'
+              - 'npm *'
+            knowledge: "Engineer tool"
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "Implement feature"
+          skills: ["engineer"]
+        generate-response:
+          text: "Feature implemented."
+      expect:
+        calls:
+          - step: build-config
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: bash_config.allow
+            equalsDeep: ["git *", "npm *", "git log *"]
