@@ -26,7 +26,7 @@
 
 id: code-talk
 name: Code Talk
-description: AI-powered code exploration across multiple repositories
+description: AI-powered code exploration across multiple repositories with confidence scoring
 version: "1.0.0"
 
 inputs:
@@ -121,6 +121,31 @@ outputs:
     value_js: |
       const result = outputs?.['explore-code'];
       return result?.references ?? [];
+
+  - name: confidence
+    description: |
+      Confidence in the final answer ("high", "medium", or "low").
+      Treat non-high confidence as a signal to verify before acting.
+    value_js: |
+      const result = outputs?.['explore-code'];
+      if (result?.confidence) return result.confidence;
+      const routeNotes = outputs?.['route-projects']?.notes;
+      if (typeof routeNotes === 'string' && routeNotes.trim().length > 0) return 'low';
+      return 'low';
+
+  - name: confidence_reason
+    description: |
+      Why confidence is not high. Should explain missing evidence,
+      ambiguity, or investigation gaps. May be empty only when confidence is high.
+    value_js: |
+      const result = outputs?.['explore-code'];
+      const confidence = result?.confidence;
+      const reason = result?.confidence_reason;
+      if (typeof reason === 'string') return reason;
+      if (confidence === 'high') return '';
+      const routeNotes = outputs?.['route-projects']?.notes;
+      if (typeof routeNotes === 'string' && routeNotes.trim().length > 0) return routeNotes;
+      return 'No confidence explanation was provided by explore-code.';
 
   - name: projects_explored
     description: Which project IDs were checked out
@@ -520,6 +545,11 @@ steps:
         7. Are all code references accurate (file paths, function names, line numbers)?
         8. Do the docs match what the code actually does?
 
+        CRITICAL: When you identify a configuration variable, you MUST then perform
+        a second search to find the code that consumes that variable. You cannot draw
+        conclusions from a variable's name alone. You must confirm its purpose by
+        analyzing how it is used in the application logic.
+
         If you found any ambiguity, gaps in your investigation, or unexplored
         hypotheses - use delegate tool to investigate further before concluding.
 
@@ -527,6 +557,9 @@ steps:
         - All relevant details grounded in code
         - If multiple theories were considered, explain which one is correct and WHY
           (with evidence ruling out alternatives)
+        - A confidence score ("high", "medium", or "low")
+        - If confidence is "medium" or "low", include a clear confidence_reason
+          explaining what evidence is missing or ambiguous
         - At the END of your answer.text, append a "## References" section with a
           bulleted list of all code/doc references in this format:
           - [file.go:42-50](https://github.com/org/repo/blob/main/path/file.go#L42-L50) - brief description
@@ -571,7 +604,18 @@ steps:
                 type: string
                 description: Brief description of what this reference shows
             required: [project, file, url]
-      required: [answer, references]
+        confidence:
+          type: string
+          enum: [high, medium, low]
+          description: |
+            Confidence in the answer based on evidence quality and investigation coverage.
+            Use "high" only when claims are directly backed by code/doc evidence.
+        confidence_reason:
+          type: string
+          description: |
+            Why confidence is not high (required to be meaningful for medium/low confidence).
+            Leave empty string only when confidence is high.
+      required: [answer, references, confidence, confidence_reason]
     prompt: |
       <instructions>
       You are a code/documentation explorer. Your goal is to answer a code-level
@@ -807,6 +851,9 @@ steps:
         ```
       - answer.summary: one-line summary (optional)
       - references: array with structured data for each reference (project, file, url, snippet)
+      - confidence: "high" | "medium" | "low"
+      - confidence_reason: required explanation when confidence is "medium" or "low";
+        use empty string only when confidence is "high"
       </task>
 
 # =============================================================================
@@ -857,6 +904,8 @@ tests:
             - project: gateway
               file: src/auth/jwt.go
               url: https://github.com/org/gateway/blob/main/src/auth/jwt.go#L42
+          confidence: high
+          confidence_reason: ""
       expect:
         calls:
           - step: checkout-docs
@@ -882,6 +931,8 @@ tests:
         workflow_output:
           - path: answer.text
             equals: "Authentication is handled in the gateway via JWT middleware."
+          - path: confidence
+            equals: "high"
 
     - name: multi-project-question
       event: manual
@@ -916,6 +967,8 @@ tests:
           answer:
             text: "Data flows via gRPC from gateway to backend."
           references: []
+          confidence: medium
+          confidence_reason: "References are incomplete for full cross-project verification."
       expect:
         calls:
           - step: checkout-docs
@@ -1065,6 +1118,8 @@ tests:
           answer:
             text: "Caching is implemented in the backend."
           references: []
+          confidence: medium
+          confidence_reason: "One routed project was invalid and filtered before exploration."
       expect:
         calls:
           - step: checkout-docs
@@ -1125,6 +1180,8 @@ tests:
           answer:
             text: "The stack flows from frontend through backend."
           references: []
+          confidence: medium
+          confidence_reason: "Exploration scope was reduced by max_projects limit."
       expect:
         calls:
           - step: checkout-docs
@@ -1170,6 +1227,8 @@ tests:
           answer:
             text: ""
           references: []
+          confidence: low
+          confidence_reason: "The final answer text is empty."
       expect:
         calls:
           - step: checkout-docs

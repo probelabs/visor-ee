@@ -112,6 +112,8 @@ AI-powered code exploration workflow that answers questions about your codebase 
 **Outputs (key fields):**
 - `answer`: final response object
 - `references`: file references
+- `confidence`: evidence confidence (`high` | `medium` | `low`)
+- `confidence_reason`: why confidence is not high (empty when confidence is high)
 - `projects_explored`: list of routed project IDs
 - `projects_explored_details`: list of `{id, repo, description, reason}`
 
