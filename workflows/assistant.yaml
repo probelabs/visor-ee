@@ -448,10 +448,22 @@ steps:
         if (isActive) {
           log('[build-config] Activating skill:', skill.id, 'hasTools:', !!skill.tools, 'hasKnowledge:', !!skill.knowledge);
 
-          // Add knowledge if present
+          // Build structured XML block for each active skill
+          const parts = [];
+          parts.push('<skill>');
+          parts.push('  <id>' + (skill.id || '') + '</id>');
+          parts.push('  <description>' + (skill.description || '') + '</description>');
           if (skill.knowledge) {
-            knowledgeParts.push(skill.knowledge);
+            parts.push('  <knowledge>' + skill.knowledge + '</knowledge>');
           }
+          if (skill.tools && typeof skill.tools === 'object') {
+            const toolIds = Object.keys(skill.tools);
+            if (toolIds.length > 0) {
+              parts.push('  <tools>' + toolIds.join(', ') + '</tools>');
+            }
+          }
+          parts.push('</skill>');
+          knowledgeParts.push(parts.join('\n'));
 
           // Add tools if present
           if (skill.tools && typeof skill.tools === 'object') {
@@ -1394,9 +1406,22 @@ tests:
         prompts:
           - step: generate-response
             contains:
+              - "<skill>"
+              - "<id>jira</id>"
+              - "<description>needs Jira access</description>"
+              - "<knowledge>"
               - "## Jira Tools"
               - "jira_get_issue"
+              - "</knowledge>"
+              - "<tools>atlassian</tools>"
+              - "</skill>"
         outputs:
+          - step: build-config
+            path: knowledge_content
+            matches: "<skill>"
+          - step: build-config
+            path: knowledge_content
+            matches: "<id>jira</id>"
           - step: build-config
             path: knowledge_content
             matches: "Jira Tools"
@@ -1492,12 +1517,20 @@ tests:
         prompts:
           - step: generate-response
             contains:
+              - "<id>jira</id>"
               - "## Jira Tools"
+              - "<id>code-explorer</id>"
               - "## Code Exploration"
         outputs:
           - step: build-config
             path: knowledge_content
+            matches: "<id>jira</id>"
+          - step: build-config
+            path: knowledge_content
             matches: "Jira Tools"
+          - step: build-config
+            path: knowledge_content
+            matches: "<id>code-explorer</id>"
           - step: build-config
             path: knowledge_content
             matches: "Code Exploration"
@@ -1716,15 +1749,24 @@ tests:
         prompts:
           - step: generate-response
             contains:
+              - "<id>ticket-creator</id>"
               - "Ticket creation guide"
+              - "<id>jira</id>"
               - "Jira knowledge"
+              - "<tools>atlassian</tools>"
         outputs:
           - step: build-config
             path: mcp_servers.atlassian.command
             equals: "uvx"
           - step: build-config
             path: knowledge_content
+            matches: "<id>ticket-creator</id>"
+          - step: build-config
+            path: knowledge_content
             matches: "Ticket creation guide"
+          - step: build-config
+            path: knowledge_content
+            matches: "<id>jira</id>"
           - step: build-config
             path: knowledge_content
             matches: "Jira knowledge"
