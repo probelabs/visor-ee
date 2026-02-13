@@ -580,6 +580,7 @@ steps:
     ai:
       max_iterations: "{{ inputs.max_iterations }}"
       skip_code_context: true
+      skip_slack_context: false
       # Disable built-in probe tools - this agent should use workflow tools
       # (code-talk, engineer, etc.) for code exploration, not search directly
       # (which would search in an empty workspace and find nothing)
@@ -643,6 +644,9 @@ steps:
       {% endif %}
 
       ## Guidelines
+      - This is an ONGOING DIALOGUE - treat it as a continuous conversation, not isolated messages
+      - If continuing previous work (user says "ok", "do it", "continue", etc.), pick up where you left off
+      - Reference previous context when relevant - don't make the user repeat themselves
       - Be concise but thorough - avoid unnecessary filler
       - Provide specific references (file paths, line numbers, URLs) when available
       - If you're unsure, say so rather than guessing

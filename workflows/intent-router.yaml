@@ -189,9 +189,18 @@ steps:
       {{ inputs.question }}
 
       <slack_context_instructions>
-      The full Slack/GitHub thread may be available in <slack_context> inside the <context> block.
-      Use it to understand the current message, but prioritize the current message.
-      If the latest message is a correction or follow-up, use history to reconstruct context.
+      This is an ONGOING DIALOGUE. The full thread history is in <slack_context> inside the <context> block.
+
+      CRITICAL: Treat this as a continuous conversation, not isolated messages.
+      - If there are unfinished tasks or pending work from earlier in the thread, the current message likely relates to them
+      - Short messages like "ok", "do it", "continue", "yes", "what about X?" are follow-ups to previous context
+      - When the user references "it", "this", "that", or "the task", connect it to the most recent relevant topic
+      - If the assistant previously proposed something or was working on something, assume follow-ups relate to that work
+
+      When reconstructing the topic:
+      - Include enough context from the thread so the topic is self-contained
+      - If continuing previous work, mention what work (e.g., "Continue fixing the auth bug discussed earlier?")
+      - Don't just echo the last message if it's a short follow-up - expand it with thread context
       </slack_context_instructions>
 
       <intent_options>
