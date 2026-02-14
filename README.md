@@ -84,11 +84,25 @@ checks:
 - `question`: The user's message
 - `intents`: Array of `{id, description}` for intent classification
 - `tags`: Array of `{id, description}` for tag classification
+- `skills`: Array of skill objects (see Skill Configuration below)
 - `knowledge`: Array of `{tags, intent, content}` for conditional knowledge injection
 - `mcp_servers`: Array of `{tags, intent, name, server}` for conditional tool loading
 - `code_config`: Object with `{enabled, architecture, docs_repo, projects, ...}`
 - `system_prompt`: Base system prompt
 - `guidelines`: Additional guidelines
+
+**Skill Configuration:**
+
+Each skill in the `skills` array supports:
+- `id` (required): Unique skill identifier
+- `description`: When this skill should activate (used by the classifier)
+- `requires`: Array of other skill IDs to auto-activate
+- `knowledge`: Context injected when the skill is active
+- `tools`: Object mapping tool names to MCP server / workflow configs
+- `allowed_commands`: Bash command patterns this skill may run (e.g., `['git:log:*', 'npm:test']`)
+- `disallowed_commands`: Bash command patterns this skill must not run (e.g., `['git:push:--force']`)
+
+When skills are activated, their `allowed_commands` and `disallowed_commands` are collected and passed to the AI agent via `ai_bash_config_js`, dynamically extending the static `bashConfig`.
 
 **Outputs:**
 - `text`: The AI response
