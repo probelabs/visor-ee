@@ -248,8 +248,15 @@ inputs:
                 tool:
                   type: string
                   description: Built-in tool name (for built-in tools)
+          allowed_commands:
+            type: array
+            items: { type: string }
+            description: Bash command patterns this skill is allowed to run (e.g., 'git:log:*')
+          disallowed_commands:
+            type: array
+            items: { type: string }
+            description: Bash command patterns this skill should not run (e.g., 'git:push:*')
         required: [id]
-        additionalProperties: false
 
   # =========================================================================
   # AI Configuration
@@ -342,6 +349,15 @@ steps:
           type: object
         knowledge_content:
           type: string
+        bash_config:
+          type: object
+          properties:
+            allow:
+              type: array
+              items: { type: string }
+            deny:
+              type: array
+              items: { type: string }
     content: |
       const intent = outputs['route-intent']?.intent ?? '';
       const tags = outputs['route-intent']?.tags ?? [];
@@ -423,9 +439,11 @@ steps:
         return false;
       }
 
-      // Build MCP servers and knowledge from skills + standalone configs
+      // Build MCP servers, knowledge, and bash config from skills + standalone configs
       const servers = {};
       const knowledgeParts = [];
+      const bashAllow = [];
+      const bashDeny = [];
 
       // =========================================================================
       // Process skills - check by ID if skills mode, or by tags/intent otherwise
@@ -507,6 +525,22 @@ steps:
               }
             }
           }
+
+          // Collect bash command patterns from active skills
+          if (Array.isArray(skill.allowed_commands)) {
+            for (let j = 0; j < skill.allowed_commands.length; j++) {
+              if (bashAllow.indexOf(skill.allowed_commands[j]) === -1) {
+                bashAllow.push(skill.allowed_commands[j]);
+              }
+            }
+          }
+          if (Array.isArray(skill.disallowed_commands)) {
+            for (let j = 0; j < skill.disallowed_commands.length; j++) {
+              if (bashDeny.indexOf(skill.disallowed_commands[j]) === -1) {
+                bashDeny.push(skill.disallowed_commands[j]);
+              }
+            }
+          }
         }
       }
 
@@ -563,7 +597,11 @@ steps:
 
       return {
         mcp_servers: servers,
-        knowledge_content: knowledgeParts.join('\n\n')
+        knowledge_content: knowledgeParts.join('\n\n'),
+        bash_config: {
+          allow: bashAllow,
+          deny: bashDeny
+        }
       };
 
   # -------------------------------------------------------------------------
@@ -605,6 +643,8 @@ steps:
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
+    ai_bash_config_js: |
+      return outputs['build-config']?.bash_config ?? {};
     schema:
       type: object
       properties:
