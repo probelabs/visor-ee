@@ -632,14 +632,6 @@ steps:
         - "!analyze_all"
         - "!useSkill"
         - "!listSkills"
-      # Allow bash for GitHub Actions debugging (gh CLI commands)
-      allowBash: true
-      bashConfig:
-        allow:
-          - "gh:*"
-          - "curl:*"
-          - "jq:*"
-        timeout: 60000
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
