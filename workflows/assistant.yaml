@@ -84,6 +84,7 @@ inputs:
       Array of intent definitions for routing:
         - id: unique identifier
         - description: when to use this intent
+        - default_skills: (optional) skills to always activate for this intent
     schema:
       type: array
       items:
@@ -91,6 +92,9 @@ inputs:
         properties:
           id: { type: string }
           description: { type: string }
+          default_skills:
+            type: array
+            items: { type: string }
         required: [id, description]
 
   - name: tags
@@ -376,6 +380,7 @@ steps:
       const intent = outputs['route-intent']?.intent ?? '';
       const tags = outputs['route-intent']?.tags ?? [];
       const question = inputs.question ?? '';
+      const intentConfigs = Array.isArray(inputs.intents) ? inputs.intents : [];
 
       // Get activated skill IDs from router and expand dependencies
       const rawSelectedSkills = outputs['route-intent']?.skills ?? [];
@@ -411,8 +416,35 @@ steps:
         log("⚠️ Unknown skill dependencies detected:", JSON.stringify(unknownDeps));
       }
 
+      // Add default skills configured on the selected intent
+      let defaultSkillsForIntent = [];
+      for (let i = 0; i < intentConfigs.length; i++) {
+        const intentConfig = intentConfigs[i];
+        if (intentConfig?.id === intent && Array.isArray(intentConfig.default_skills)) {
+          defaultSkillsForIntent = intentConfig.default_skills;
+          break;
+        }
+      }
+
+      const unknownDefaultSkills = [];
+      for (let i = 0; i < defaultSkillsForIntent.length; i++) {
+        const skillId = defaultSkillsForIntent[i];
+        if (!allSkillIds[skillId]) {
+          unknownDefaultSkills.push({ intent, unknown: skillId });
+        }
+      }
+      if (unknownDefaultSkills.length > 0) {
+        log("⚠️ Unknown intent default_skills detected:", JSON.stringify(unknownDefaultSkills));
+      }
+
       // Expand selected skills to include their dependencies using array
       const activatedSkillsArr = Array.isArray(rawSelectedSkills) ? rawSelectedSkills.slice() : [];
+      for (let i = 0; i < defaultSkillsForIntent.length; i++) {
+        const skillId = defaultSkillsForIntent[i];
+        if (activatedSkillsArr.indexOf(skillId) === -1) {
+          activatedSkillsArr.push(skillId);
+        }
+      }
       let changed = true;
       while (changed) {
         changed = false;
@@ -458,6 +490,7 @@ steps:
       const knowledgeParts = [];
       const bashAllow = [];
       const bashDeny = [];
+      let bashEnabled = false;
 
       // =========================================================================
       // Process skills - check by ID if skills mode, or by tags/intent otherwise
@@ -505,6 +538,14 @@ steps:
             for (let i = 0; i < toolNames.length; i++) {
               const toolName = toolNames[i];
               const toolConfig = skillTools[toolName];
+
+              // Handle built-in Probe tools (not MCP servers)
+              if (toolName === 'bash') {
+                bashEnabled = true;
+                log('[build-config] Bash tool enabled by skill:', skill.id);
+                continue;
+              }
+
               if (toolConfig) {
                 // If tool already exists, merge allowedMethods/blockedMethods
                 if (servers[toolName]) {
@@ -612,6 +653,7 @@ steps:
       return {
         mcp_servers: servers,
         knowledge_content: knowledgeParts.join('\n\n'),
+        bash_enabled: bashEnabled,
         bash_config: {
           allow: bashAllow,
           deny: bashDeny
@@ -635,19 +677,21 @@ steps:
       enableTasks: "{{ inputs.enableTasks }}"
       skip_code_context: true
       skip_slack_context: false
-      # Disable built-in probe tools - this agent should use workflow tools
-      # (code-talk, engineer, etc.) for code exploration, not search directly
-      # (which would search in an empty workspace and find nothing)
+      # No built-in Probe tools by default - tools are controlled by skills
+      # delegate: always available for multi-step task coordination
+      # readImage: always available for viewing screenshots/images
+      # bash: enabled dynamically when skills declare tools: { bash: {} }
       allowedTools:
-        - "*"
-        - "!search"
-        - "!extract"
-        - "!listFiles"
-        - "!searchFiles"
-        - "!query"
-        - "!analyze_all"
-        - "!useSkill"
-        - "!listSkills"
+        - "delegate"
+        - "readImage"
+      allowedTools_js: |
+        // Start with always-available tools, add bash if any skill enabled it
+        const tools = ['delegate', 'readImage'];
+        const bashEnabled = outputs['build-config']?.bash_enabled === true;
+        if (bashEnabled) {
+          tools.push('bash');
+        }
+        return tools;
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
@@ -1045,6 +1089,96 @@ tests:
         workflow_output:
           - path: intent
             equals: "code_help"
+
+    - name: intent-default-skills-activated
+      description: default_skills on intent are activated even when router returns no skills
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Find ticket TT-123"
+        intents:
+          - id: chat
+            description: general Q&A
+            default_skills: [jira]
+        skills:
+          - id: jira
+            description: request references Jira tickets
+            knowledge: |
+              ## Jira Tools
+              Use jira_get_issue to fetch ticket details.
+            tools:
+              atlassian:
+                command: uvx
+                args: ["mcp-atlassian"]
+      mocks:
+        route-intent:
+          intent: chat
+          topic: "Find ticket TT-123?"
+          skills: []
+        generate-response:
+          text: "Found ticket."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers.atlassian.command
+            equals: "uvx"
+          - step: build-config
+            path: knowledge_content
+            matches: "<id>jira</id>"
+
+    - name: intent-default-skills-expand-requires
+      description: default_skills participate in requires dependency expansion
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "Create a PR for auth fix"
+        intents:
+          - id: code_help
+            description: code questions
+            default_skills: [engineer]
+        skills:
+          - id: code-explorer
+            description: needs codebase exploration
+            tools:
+              code-explorer:
+                workflow: code-talk
+                inputs: {}
+          - id: engineer
+            description: user wants code changes or PR created
+            requires: [code-explorer]
+            tools:
+              engineer:
+                workflow: engineer
+                inputs: {}
+      mocks:
+        route-intent:
+          intent: code_help
+          topic: "Create a PR for auth fix?"
+          skills: []
+        generate-response:
+          text: "Created PR."
+      expect:
+        calls:
+          - step: route-intent
+            exactly: 1
+          - step: build-config
+            exactly: 1
+          - step: generate-response
+            exactly: 1
+        outputs:
+          - step: build-config
+            path: mcp_servers.engineer.workflow
+            equals: "engineer"
+          - step: build-config
+            path: mcp_servers.code-explorer.workflow
+            equals: "code-talk"
 
     - name: circular-dependency-handled
       description: Circular skill dependencies don't cause infinite loops
