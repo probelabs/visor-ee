@@ -35,6 +35,7 @@ checks:
           description: general Q&A or small talk
         - id: code_help
           description: questions about code or architecture
+          default_skills: [code-explorer]
       skills:
         - id: code-explorer
           description: needs codebase exploration or code search
@@ -73,7 +74,7 @@ User message
 [1. route-intent]       ── classify intent + select skills
     |
     v
-[2. build-config]       ── expand skill dependencies, collect tools/knowledge/bash
+[2. build-config]       ── add intent default skills, expand dependencies, collect tools/knowledge/bash
     |
     v
 [3. generate-response]  ── AI generates response with dynamic tools + knowledge
@@ -87,7 +88,7 @@ Output: { text, intent, tags, topic }
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `question` | string | yes | | The user's message |
-| `intents` | array | yes | | Intent definitions for routing |
+| `intents` | array | yes | | Intent definitions for routing (`[{id, description, default_skills?}]`) |
 | `skills` | array | no | `[]` | Skill definitions (recommended over tags) |
 | `tags` | array | no | `[]` | Tag definitions (legacy, use skills instead) |
 | `knowledge` | array | no | `[]` | Standalone knowledge blocks (legacy) |
@@ -155,8 +156,9 @@ skills:
 
 1. The user sends a message
 2. The intent-router classifies the intent and selects relevant skills based on their `description` fields
-3. `requires` dependencies are expanded recursively (cycles handled, diamonds deduplicated)
-4. For each active skill:
+3. `default_skills` from the selected intent are always added
+4. `requires` dependencies are expanded recursively (cycles handled, diamonds deduplicated)
+5. For each active skill:
    - Knowledge is injected into the AI prompt (wrapped in `<skill>` XML blocks)
    - Tools are added to the AI's available MCP servers
    - Bash allow/deny patterns are collected and applied
@@ -221,9 +223,12 @@ intents:
     description: general Q&A, follow-up questions, small talk
   - id: code_help
     description: questions about code, implementation, or architecture
+    default_skills: [code-explorer]
   - id: task
     description: create, update, or execute something
 ```
+
+`default_skills` ensures specific skills are always active for that intent, even if the classifier returns no skills.
 
 ### Knowledge Injection
 
@@ -324,6 +329,7 @@ checks:
           description: general Q&A, follow-up questions, small talk
         - id: code_help
           description: questions about code, architecture, or implementation
+          default_skills: [code-explorer]
         - id: task
           description: create, update, or execute something
 
@@ -680,6 +686,7 @@ args:
       description: general Q&A
     - id: code_help
       description: code questions
+      default_skills: [code-explorer]
     - id: task
       description: create or execute something
   skills:
