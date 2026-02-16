@@ -498,6 +498,7 @@ steps:
       const bashAllow = [];
       const bashDeny = [];
       let bashEnabled = false;
+      let executePlanEnabled = false;
 
       // =========================================================================
       // Process skills - check by ID if skills mode, or by tags/intent otherwise
@@ -550,6 +551,11 @@ steps:
               if (toolName === 'bash') {
                 bashEnabled = true;
                 log('[build-config] Bash tool enabled by skill:', skill.id);
+                continue;
+              }
+              if (toolName === 'execute_plan') {
+                executePlanEnabled = true;
+                log('[build-config] execute_plan tool enabled by skill:', skill.id);
                 continue;
               }
 
@@ -661,6 +667,7 @@ steps:
         mcp_servers: servers,
         knowledge_content: knowledgeParts.join('\n\n'),
         bash_enabled: bashEnabled,
+        execute_plan_enabled: executePlanEnabled,
         bash_config: {
           allow: bashAllow,
           deny: bashDeny
@@ -693,11 +700,14 @@ steps:
         - "delegate"
         - "readImage"
     ai_allowed_tools_js: |
-      // Start with always-available tools, add bash if any skill enabled it
+      // Start with always-available tools, add bash/execute_plan if any skill enabled them
       const tools = ['delegate', 'readImage'];
       const bashEnabled = outputs['build-config']?.bash_enabled === true;
       if (bashEnabled) {
         tools.push('bash');
+      }
+      if (outputs['build-config']?.execute_plan_enabled === true) {
+        tools.push('execute_plan');
       }
       return tools;
     ai_mcp_servers_js: |
