@@ -709,6 +709,13 @@ steps:
       if (outputs['build-config']?.execute_plan_enabled === true) {
         tools.push('execute_plan');
       }
+      // Allow all MCP tools from build-config (workflow tools, custom tools)
+      const mcpServers = outputs['build-config']?.mcp_servers;
+      if (mcpServers && typeof mcpServers === 'object') {
+        for (const name of Object.keys(mcpServers)) {
+          tools.push(name);
+        }
+      }
       return tools;
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
