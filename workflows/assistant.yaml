@@ -692,30 +692,20 @@ steps:
       enableExecutePlan: "{{ inputs.enableExecutePlan }}"
       skip_code_context: true
       skip_slack_context: false
-      # Explicit whitelist of allowed tools. MCP tools (workflow tools) are added
-      # dynamically from build-config. delegate is excluded — AI tends to use it
-      # instead of skill-specific MCP tools like code-explorer.
-      allowedTools:
-        - "readImage"
+      # Wildcard-with-exclusions pattern: allow everything except tools that
+      # the AI tends to misuse instead of skill-specific MCP tools.
+      # ProbeAgent resolves "*" and "!" patterns natively.
     ai_allowed_tools_js: |
-      // Explicit whitelist: readImage + dynamic tools from skills
-      const tools = ['readImage'];
+      // Start with wildcard — allow all tools by default
+      const excluded = ['search', 'query', 'extract', 'listFiles', 'searchFiles', 'delegate'];
       const bashEnabled = outputs['build-config']?.bash_enabled === true;
-      if (bashEnabled) {
-        tools.push('bash');
+      if (!bashEnabled) {
+        excluded.push('bash');
       }
-      if (outputs['build-config']?.execute_plan_enabled === true) {
-        tools.push('execute_plan');
+      if (outputs['build-config']?.execute_plan_enabled !== true) {
+        excluded.push('execute_plan');
       }
-      // Add MCP tools from build-config (workflow tools use server entry names
-      // which now match the registered tool names via name override)
-      const mcpServers = outputs['build-config']?.mcp_servers;
-      if (mcpServers && typeof mcpServers === 'object') {
-        for (const name of Object.keys(mcpServers)) {
-          tools.push(name);
-        }
-      }
-      return tools;
+      return ['*', ...excluded.map(t => '!' + t)];
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
