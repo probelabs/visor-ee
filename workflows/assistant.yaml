@@ -693,15 +693,14 @@ steps:
       skip_code_context: true
       skip_slack_context: false
       # No built-in Probe tools by default - tools are controlled by skills
-      # delegate: always available for multi-step task coordination
       # readImage: always available for viewing screenshots/images
       # bash: enabled dynamically when skills declare tools: { bash: {} }
+      # delegate: REMOVED - AI tends to use delegate instead of skill-specific MCP tools
       allowedTools:
-        - "delegate"
         - "readImage"
     ai_allowed_tools_js: |
       // Start with always-available tools, add bash/execute_plan if any skill enabled them
-      const tools = ['delegate', 'readImage'];
+      const tools = ['readImage'];
       const bashEnabled = outputs['build-config']?.bash_enabled === true;
       if (bashEnabled) {
         tools.push('bash');
