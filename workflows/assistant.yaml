@@ -692,14 +692,14 @@ steps:
       allowedTools:
         - "delegate"
         - "readImage"
-      allowedTools_js: |
-        // Start with always-available tools, add bash if any skill enabled it
-        const tools = ['delegate', 'readImage'];
-        const bashEnabled = outputs['build-config']?.bash_enabled === true;
-        if (bashEnabled) {
-          tools.push('bash');
-        }
-        return tools;
+    ai_allowed_tools_js: |
+      // Start with always-available tools, add bash if any skill enabled it
+      const tools = ['delegate', 'readImage'];
+      const bashEnabled = outputs['build-config']?.bash_enabled === true;
+      if (bashEnabled) {
+        tools.push('bash');
+      }
+      return tools;
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
