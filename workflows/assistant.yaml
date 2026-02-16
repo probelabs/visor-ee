@@ -293,6 +293,13 @@ inputs:
     schema:
       type: boolean
 
+  - name: enableExecutePlan
+    required: false
+    description: Enable the execute_plan DSL orchestration tool
+    default: false
+    schema:
+      type: boolean
+
 # =========================================================================
 # Outputs
 # =========================================================================
@@ -675,6 +682,7 @@ steps:
       max_iterations: "{{ inputs.max_iterations }}"
       enableDelegate: "{{ inputs.enableDelegate }}"
       enableTasks: "{{ inputs.enableTasks }}"
+      enableExecutePlan: "{{ inputs.enableExecutePlan }}"
       skip_code_context: true
       skip_slack_context: false
       # No built-in Probe tools by default - tools are controlled by skills
