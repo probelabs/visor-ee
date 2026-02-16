@@ -692,29 +692,30 @@ steps:
       enableExecutePlan: "{{ inputs.enableExecutePlan }}"
       skip_code_context: true
       skip_slack_context: false
-      # Use wildcard with exclusions: allow everything EXCEPT native Probe search tools and delegate.
-      # This ensures MCP tools (code-explorer, slack-*, etc.) are always allowed regardless of naming.
-      # delegate excluded: AI tends to use it instead of skill-specific MCP tools.
+      # Explicit whitelist of allowed tools. MCP tools (workflow tools) are added
+      # dynamically from build-config. delegate is excluded — AI tends to use it
+      # instead of skill-specific MCP tools like code-explorer.
       allowedTools:
-        - "*"
-        - "!search"
-        - "!query"
-        - "!extract"
-        - "!listFiles"
-        - "!searchFiles"
-        - "!delegate"
+        - "readImage"
     ai_allowed_tools_js: |
-      // Wildcard with exclusions: block native Probe search tools and delegate,
-      // allow everything else (readImage, MCP tools, bash/execute_plan when enabled).
-      const excluded = ['search', 'query', 'extract', 'listFiles', 'searchFiles', 'delegate'];
+      // Explicit whitelist: readImage + dynamic tools from skills
+      const tools = ['readImage'];
       const bashEnabled = outputs['build-config']?.bash_enabled === true;
-      if (!bashEnabled) {
-        excluded.push('bash');
+      if (bashEnabled) {
+        tools.push('bash');
       }
-      if (outputs['build-config']?.execute_plan_enabled !== true) {
-        excluded.push('execute_plan');
+      if (outputs['build-config']?.execute_plan_enabled === true) {
+        tools.push('execute_plan');
       }
-      return ['*', ...excluded.map(t => '!' + t)];
+      // Add MCP tools from build-config (workflow tools use server entry names
+      // which now match the registered tool names via name override)
+      const mcpServers = outputs['build-config']?.mcp_servers;
+      if (mcpServers && typeof mcpServers === 'object') {
+        for (const name of Object.keys(mcpServers)) {
+          tools.push(name);
+        }
+      }
+      return tools;
     ai_mcp_servers_js: |
       // Return the pre-built MCP servers from build-config
       return outputs['build-config']?.mcp_servers ?? {};
