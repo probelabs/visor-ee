@@ -824,6 +824,9 @@ steps:
         </docs_checkout>
 
         {% assign items = outputs.history['project-items'] | last %}
+        {% if items == nil or items == empty %}
+        {% assign items = outputs['project-items'] %}
+        {% endif %}
         {% assign checkouts = outputs.history['checkout-projects'] %}
         {% if checkouts == nil or checkouts == empty %}
         {% assign checkouts = outputs['checkout-projects'].forEachItems %}
@@ -1310,6 +1313,14 @@ tests:
           confidence_reason: ""
       expect:
         calls:
+          - step: checkout-docs
+            exactly: 1
+          - step: route-projects
+            exactly: 1
+          - step: project-items
+            exactly: 1
+          - step: checkout-projects
+            exactly: 1
           - step: explore-code
             exactly: 1
         # Verify knowledge appears in explore-code prompt
