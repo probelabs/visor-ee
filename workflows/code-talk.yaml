@@ -57,6 +57,7 @@ inputs:
         - id: unique identifier for routing
         - repo: GitHub repository (owner/name)
         - description: used by AI for routing decisions
+        - knowledge: (optional) additional context injected into exploration prompt
     schema:
       type: array
       items:
@@ -65,6 +66,7 @@ inputs:
           id: { type: string }
           repo: { type: string }
           description: { type: string }
+          knowledge: { type: string }
         required: [id, repo, description]
 
   - name: max_projects
@@ -232,6 +234,7 @@ outputs:
           id: pid,
           repo: info.repo,
           description: info.description ?? '',
+          knowledge: info.knowledge ?? '',
           reason: ''
         });
       }
@@ -266,6 +269,7 @@ outputs:
           project_id: item.project_id,
           repository: item.repository ?? item.repo ?? '',
           description: item.description ?? '',
+          knowledge: item.knowledge ?? '',
           path: checkout.path ?? checkout.workspace_path ?? ''
         });
       }
@@ -413,7 +417,8 @@ steps:
         if (p?.id) {
           projectMap[p.id] = {
             repo: p.repo,
-            description: p.description ?? p.id
+            description: p.description ?? p.id,
+            knowledge: p.knowledge ?? ''
           };
         }
       }
@@ -438,7 +443,8 @@ steps:
           project_id: routed.project_id,
           reason: routed.reason ?? '',
           repository: info.repo,
-          description: info.description
+          description: info.description,
+          knowledge: info.knowledge
         });
       }
 
@@ -831,6 +837,7 @@ steps:
             <repo>{{ p.repository }}</repo>
             <path>{{ co.path }}</path>
             <reason>{{ p.reason | default: 'not provided' }}</reason>
+            {% if p.knowledge %}<knowledge>{{ p.knowledge }}</knowledge>{% endif %}
           </project>
         {% endfor %}
         {% endif %}
