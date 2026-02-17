@@ -1269,3 +1269,52 @@ tests:
         workflow_output:
           - path: answer.text
             equals: ""
+
+    # =========================================================================
+    # Knowledge field passed to explore-code prompt
+    # Verifies that project.knowledge is rendered in the explore-code context
+    # =========================================================================
+    - name: knowledge-field-in-explore-code
+      description: Project knowledge field should appear in explore-code prompt
+      event: manual
+      fixture: local.minimal
+      workflow_input:
+        question: "What customers use GraphQL?"
+        architecture: "# Arch"
+        docs_repo: org/docs
+        projects:
+          - id: customer-data
+            repo: org/customer-data
+            description: Customer information repository
+            knowledge: |
+              **CRITICAL: Use search + chunk + map pattern.**
+              Always process data in chunks to avoid context overflow.
+      mocks:
+        checkout-docs:
+          path: "/tmp/visor/docs"
+          repository: "org/docs"
+          ref: "main"
+        checkout-projects:
+          path: "/tmp/visor/customer-data"
+          repository: "org/customer-data"
+          ref: "main"
+        route-projects:
+          projects:
+            - project_id: "customer-data"
+              reason: "Contains customer usage data"
+        explore-code:
+          answer:
+            text: "Based on the customer data, 5 customers use GraphQL."
+          references: []
+          confidence: high
+          confidence_reason: ""
+      expect:
+        calls:
+          - step: explore-code
+            exactly: 1
+        # Verify knowledge appears in explore-code prompt
+        prompts:
+          - step: explore-code
+            contains:
+              - "CRITICAL: Use search + chunk + map pattern"
+              - "Always process data in chunks"
