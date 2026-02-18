@@ -769,6 +769,9 @@ steps:
       - If a tool returns 10 items with details, include ALL 10 in your answer
       - Never say "based on the analysis" without presenting the actual data
       - Tools already synthesize data - your job is to present it completely
+
+      CRITICAL: Always use `attempt_completion` tool to submit your final answer.
+      This enables validation of your investigation before the response is finalized.
       </instructions>
 
       {% if inputs.exploration_prompt %}

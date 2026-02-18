@@ -692,6 +692,27 @@ steps:
       enableExecutePlan: "{{ inputs.enableExecutePlan }}"
       skip_code_context: true
       skip_slack_context: false
+      # Post-completion validation to prevent hallucination of completed actions
+      completion_prompt: |
+        CRITICAL VALIDATION - Before finalizing your response, verify:
+
+        Action verification:
+        1. If you claimed to CREATE something (Jira ticket, PR, file, etc.), did you actually call the tool?
+           - Creating a Jira ticket requires calling mcp__jira__jira_create_issue
+           - Creating a PR requires calling the engineer tool
+           - If you didn't call the tool, DO NOT claim the action was completed
+        2. If you claimed to UPDATE something, did you actually call the update tool?
+        3. If you claimed to SEARCH or FETCH something, did you get actual results?
+
+        Tool output verification:
+        4. Check your tool call history - does it support your claims?
+        5. If a tool returned an error or empty result, acknowledge it honestly
+        6. Never claim success if you only PLANNED to do something but didn't execute it
+
+        If you find discrepancies:
+        - Correct your response to reflect what actually happened
+        - If you couldn't complete an action, explain why and what the user can do
+        - Be honest about failures rather than claiming false success
       # Wildcard-with-exclusions pattern: allow everything except tools that
       # the AI tends to misuse instead of skill-specific MCP tools.
       # ProbeAgent resolves "*" and "!" patterns natively.
@@ -758,6 +779,7 @@ steps:
       - If you're unsure, say so rather than guessing
       - Use available tools proactively - don't make up information that could be retrieved
       - When a tool returns an error, explain what happened and suggest alternatives
+      - **CRITICAL: Always use `attempt_completion` tool to submit your final response** - this enables validation of your actions before the response is finalized
 
       ## CRITICAL: Preserve Tool Output Details
       When tools return detailed data (lists, analytics, search results):
